@@ -1,0 +1,17 @@
+{
+  "listen_address":  "INVALID",
+  "listen_port": 999999999,
+  "log_level": "debug",
+  "chains": [
+    {
+      "name": "mock",
+      "filters": [
+        {
+          "mock": {
+            "allow": true
+          }
+        }
+      ]
+    }
+  ]
+}

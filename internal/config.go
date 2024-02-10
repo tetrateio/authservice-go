@@ -64,5 +64,5 @@ func (l *LocalConfigFile) Validate() error {
 	// Set reasonable defaults for non-supported values
 	l.Config.Threads = 1
 
-	return l.Config.Validate()
+	return l.Config.ValidateAll()
 }
