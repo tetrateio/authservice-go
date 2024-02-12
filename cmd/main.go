@@ -31,8 +31,8 @@ func main() {
 	var (
 		configFile  = &internal.LocalConfigFile{}
 		logging     = internal.NewLogSystem(log.New(), &configFile.Config)
-		authz       = server.NewExtAuthZFilter(&configFile.Config)
-		authzServer = server.New(&configFile.Config, authz.Register)
+		envoyAuthz  = server.NewExtAuthZFilter(&configFile.Config)
+		authzServer = server.New(&configFile.Config, envoyAuthz.Register)
 	)
 
 	configLog := run.NewPreRunner("config-log", func() error {

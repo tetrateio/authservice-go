@@ -16,6 +16,7 @@ package authz
 
 import (
 	"context"
+	"time"
 
 	envoy "github.com/envoyproxy/go-control-plane/envoy/service/auth/v3"
 	"github.com/tetratelabs/telemetry"
@@ -25,23 +26,48 @@ import (
 	"github.com/tetrateio/authservice-go/internal/authz/oidc"
 )
 
-var _ Authz = (*oidcHandler)(nil)
+var _ Handler = (*oidcHandler)(nil)
 
-// oidc handler is an implementation of the Authz interface that implements
+// oidc handler is an implementation of the Handler interface that implements
 // the OpenID connect protocol.
 type oidcHandler struct {
 	log    telemetry.Logger
 	config *oidcv1.OIDCConfig
 	store  oidc.SessionStore
+	jwks   oidc.JWKSProvider
 }
 
-// NewOIDCHandler creates a new OIDC implementation of the Authz interface.
-func NewOIDCHandler(cfg *oidcv1.OIDCConfig, store oidc.SessionStore) Authz {
+// NewOIDCHandler creates a new OIDC implementation of the Handler interface.
+func NewOIDCHandler(cfg *oidcv1.OIDCConfig) (Handler, error) {
+	// TODO(nacx): Read the redis store config to configure the redi store
+	store := oidc.NewMemoryStore(
+		oidc.Clock{},
+		time.Duration(cfg.AbsoluteSessionTimeout),
+		time.Duration(cfg.IdleSessionTimeout),
+	)
+
+	var (
+		jwks oidc.JWKSProvider
+		err  error
+	)
+	if cfg.GetJwksFetcher() != nil {
+		jwks = oidc.NewDynamicJWKSProvider(
+			context.TODO(),
+			cfg.GetJwksFetcher().GetJwksUri(),
+			time.Duration(cfg.GetJwksFetcher().GetPeriodicFetchIntervalSec())*time.Second,
+		)
+	} else {
+		if jwks, err = oidc.NewStaticJWKSProvider(cfg.GetJwks()); err != nil {
+			return nil, err
+		}
+	}
+
 	return &oidcHandler{
 		log:    internal.Logger(internal.Authz).With("type", "oidc"),
 		config: cfg,
 		store:  store,
-	}
+		jwks:   jwks,
+	}, nil
 }
 
 // Process a CheckRequest and populate a CheckResponse according to the mockHandler configuration.
