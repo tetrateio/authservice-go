@@ -22,6 +22,7 @@ import (
 
 	envoy "github.com/envoyproxy/go-control-plane/envoy/service/auth/v3"
 	"github.com/stretchr/testify/require"
+	"github.com/tetratelabs/telemetry"
 	"google.golang.org/grpc/codes"
 
 	configv1 "github.com/tetrateio/authservice-go/config/gen/go/v1"
@@ -177,11 +178,12 @@ func TestStringMatch(t *testing.T) {
 		{"suffix-no-match", stringSuffix("test"), "no-match", false},
 		{"regex-match", stringRegex(".*st"), "test", true},
 		{"regex-no-match", stringRegex(".*st"), "no-match", false},
+		{"regex-invalid", stringRegex("["), "no-match", false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, stringMatch(tt.match, tt.path))
+			require.Equal(t, tt.want, stringMatch(telemetry.NoopLogger(), tt.match, tt.path))
 		})
 	}
 }
@@ -204,7 +206,7 @@ func TestMatchTriggerRule(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, matchTriggerRule(tt.rule, tt.path))
+			require.Equal(t, tt.want, matchTriggerRule(telemetry.NoopLogger(), tt.rule, tt.path))
 		})
 	}
 
@@ -253,7 +255,7 @@ func TestMustTriggerCheck(t *testing.T) {
 					},
 				},
 			}
-			require.Equal(t, tt.want, mustTriggerCheck(tt.rules, req))
+			require.Equal(t, tt.want, mustTriggerCheck(telemetry.NoopLogger(), tt.rules, req))
 		})
 	}
 }
