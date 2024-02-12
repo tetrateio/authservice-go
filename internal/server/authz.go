@@ -75,9 +75,9 @@ func (e *ExtAuthZFilter) Register(server *grpc.Server) {
 func (e *ExtAuthZFilter) Check(ctx context.Context, req *envoy.CheckRequest) (response *envoy.CheckResponse, err error) {
 	// If there are no trigger rules, allow the request with no check executions.
 	// TriggerRules are used to determine which request should be checked by the filter and which don't.
-	trLog := e.log.Context(ctx)
-	if !mustTriggerCheck(trLog, e.cfg.TriggerRules, req) {
-		trLog.Debug(fmt.Sprintf("no matching trigger rule, so allowing request to proceed without any authservice functionality %s://%s%s",
+	log := e.log.Context(ctx)
+	if !mustTriggerCheck(log, e.cfg.TriggerRules, req) {
+		log.Debug(fmt.Sprintf("no matching trigger rule, so allowing request to proceed without any authservice functionality %s://%s%s",
 			req.GetAttributes().GetRequest().GetHttp().GetScheme(),
 			req.GetAttributes().GetRequest().GetHttp().GetHost(),
 			req.GetAttributes().GetRequest().GetHttp().GetPath()))
@@ -87,7 +87,7 @@ func (e *ExtAuthZFilter) Check(ctx context.Context, req *envoy.CheckRequest) (re
 	for _, c := range e.cfg.Chains {
 		match := matches(c.Match, req)
 
-		log := e.log.Context(ctx).With("chain", c.Name)
+		log = log.With("chain", c.Name)
 		log.Debug("evaluate filter chain", "match", match)
 
 		if !match {
