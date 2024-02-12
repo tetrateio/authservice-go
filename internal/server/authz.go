@@ -77,9 +77,11 @@ func (e *ExtAuthZFilter) Register(server *grpc.Server) {
 
 // Check is the implementation of the Envoy AuthorizationServer interface.
 func (e *ExtAuthZFilter) Check(ctx context.Context, req *envoy.CheckRequest) (response *envoy.CheckResponse, err error) {
+	ctx = propagateRequestID(ctx, req) // Push the original request id tot eh context to include it in all logs
+	log := e.log.Context(ctx)
+
 	// If there are no trigger rules, allow the request with no check executions.
 	// TriggerRules are used to determine which request should be checked by the filter and which don't.
-	log := e.log.Context(propagateRequestID(ctx, req))
 	if !mustTriggerCheck(log, e.cfg.TriggerRules, req) {
 		log.Debug(fmt.Sprintf("no matching trigger rule, so allowing request to proceed without any authservice functionality %s://%s%s",
 			req.GetAttributes().GetRequest().GetHttp().GetScheme(),
