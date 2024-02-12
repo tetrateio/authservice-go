@@ -17,6 +17,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	envoy "github.com/envoyproxy/go-control-plane/envoy/service/auth/v3"
@@ -72,6 +73,16 @@ func (e *ExtAuthZFilter) Register(server *grpc.Server) {
 
 // Check is the implementation of the Envoy AuthorizationServer interface.
 func (e *ExtAuthZFilter) Check(ctx context.Context, req *envoy.CheckRequest) (response *envoy.CheckResponse, err error) {
+	// If there are no trigger rules, allow the request with no check executions.
+	// TriggerRules are used to determine which request should be checked by the filter and which don't.
+	if !mustTriggerCheck(e.cfg.TriggerRules, req) {
+		e.log.Debug(fmt.Sprintf("no matching trigger rule, so allowing request to proceed without any authservice functionality %s://%s%s",
+			req.GetAttributes().GetRequest().GetHttp().GetScheme(),
+			req.GetAttributes().GetRequest().GetHttp().GetHost(),
+			req.GetAttributes().GetRequest().GetHttp().GetPath()))
+		return allow, nil
+	}
+
 	for _, c := range e.cfg.Chains {
 		match := matches(c.Match, req)
 
@@ -146,4 +157,66 @@ func matches(m *configv1.Match, req *envoy.CheckRequest) bool {
 		return headerValue == m.GetEquality()
 	}
 	return strings.HasPrefix(headerValue, m.GetPrefix())
+}
+
+// mustTriggerCheck returns true if the request must be checked by the authservice filters.
+// If any of the TriggerRules match the request path, then the request must be checked.
+func mustTriggerCheck(rules []*configv1.TriggerRule, req *envoy.CheckRequest) bool {
+	// If there are no trigger rules, authservice checks should be triggered for all requests.
+	// If the request path is empty, (unlikely, but the piece used to match the rules) then trigger the checks.
+	if len(rules) == 0 || len(req.GetAttributes().GetRequest().GetHttp().GetPath()) == 0 {
+		return true
+	}
+
+	for _, rule := range rules {
+		if matchTriggerRule(rule, req.GetAttributes().GetRequest().GetHttp().GetPath()) {
+			return true
+		}
+	}
+	return false
+}
+
+func matchTriggerRule(rule *configv1.TriggerRule, path string) bool {
+	if rule == nil {
+		return false
+	}
+
+	for _, match := range rule.GetExcludedPaths() {
+		// if any of the excluded paths match, this rule doesn't match
+		if stringMatch(match, path) {
+			return false
+		}
+	}
+
+	// if no excluded paths match, and there are no included paths, this rule matches
+	if len(rule.GetIncludedPaths()) == 0 {
+		return true
+	}
+
+	for _, match := range rule.GetIncludedPaths() {
+		// if any of the included paths match, this rule matches
+		if stringMatch(match, path) {
+			return true
+		}
+	}
+
+	// if none of the included paths match, this rule doesn't match
+	return false
+}
+
+func stringMatch(match *configv1.StringMatch, path string) bool {
+	switch m := match.GetMatchType().(type) {
+	case *configv1.StringMatch_Exact:
+		return m.Exact == path
+	case *configv1.StringMatch_Prefix:
+		return strings.HasPrefix(path, m.Prefix)
+	case *configv1.StringMatch_Suffix:
+		return strings.HasSuffix(path, m.Suffix)
+	case *configv1.StringMatch_Regex:
+		b, _ := regexp.MatchString(m.Regex, path)
+		// TODO: handle error
+		return b
+	default:
+		return false
+	}
 }
