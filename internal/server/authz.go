@@ -29,6 +29,7 @@ import (
 	configv1 "github.com/tetrateio/authservice-go/config/gen/go/v1"
 	"github.com/tetrateio/authservice-go/internal"
 	"github.com/tetrateio/authservice-go/internal/authz"
+	"github.com/tetrateio/authservice-go/internal/oidc"
 )
 
 // EnvoyXRequestID is the header name for the request id
@@ -56,15 +57,17 @@ var (
 
 // ExtAuthZFilter is an implementation of the Envoy AuthZ filter.
 type ExtAuthZFilter struct {
-	log telemetry.Logger
-	cfg *configv1.Config
+	log  telemetry.Logger
+	cfg  *configv1.Config
+	jwks oidc.JWKSProvider
 }
 
 // NewExtAuthZFilter creates a new ExtAuthZFilter.
-func NewExtAuthZFilter(cfg *configv1.Config) *ExtAuthZFilter {
+func NewExtAuthZFilter(cfg *configv1.Config, jwks oidc.JWKSProvider) *ExtAuthZFilter {
 	return &ExtAuthZFilter{
-		log: internal.Logger(internal.Authz),
-		cfg: cfg,
+		log:  internal.Logger(internal.Authz),
+		cfg:  cfg,
+		jwks: jwks,
 	}
 }
 
@@ -112,10 +115,10 @@ func (e *ExtAuthZFilter) Check(ctx context.Context, req *envoy.CheckRequest) (re
 				h = authz.NewMockHandler(ft.Mock)
 			case *configv1.Filter_Oidc:
 				// TODO(nacx): Check if the Oidc setting is enough or we have to pull the default Oidc settings
-				h, err = authz.NewOIDCHandler(ft.Oidc)
+				h, err = authz.NewOIDCHandler(ft.Oidc, e.jwks)
 			case *configv1.Filter_OidcOverride:
 				// TODO(nacx): Check if the OidcOverride is enough or we have to pull the default Oidc settings
-				h, err = authz.NewOIDCHandler(ft.OidcOverride)
+				h, err = authz.NewOIDCHandler(ft.OidcOverride, e.jwks)
 			}
 
 			if err != nil {

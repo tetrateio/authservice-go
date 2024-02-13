@@ -23,7 +23,7 @@ import (
 
 	oidcv1 "github.com/tetrateio/authservice-go/config/gen/go/v1/oidc"
 	"github.com/tetrateio/authservice-go/internal"
-	"github.com/tetrateio/authservice-go/internal/authz/oidc"
+	"github.com/tetrateio/authservice-go/internal/oidc"
 )
 
 var _ Handler = (*oidcHandler)(nil)
@@ -38,29 +38,14 @@ type oidcHandler struct {
 }
 
 // NewOIDCHandler creates a new OIDC implementation of the Handler interface.
-func NewOIDCHandler(cfg *oidcv1.OIDCConfig) (Handler, error) {
+func NewOIDCHandler(cfg *oidcv1.OIDCConfig, jwks oidc.JWKSProvider) (Handler, error) {
 	// TODO(nacx): Read the redis store config to configure the redi store
+	// TODO(nacx): Properly lifecycle the session store
 	store := oidc.NewMemoryStore(
 		oidc.Clock{},
 		time.Duration(cfg.AbsoluteSessionTimeout),
 		time.Duration(cfg.IdleSessionTimeout),
 	)
-
-	var (
-		jwks oidc.JWKSProvider
-		err  error
-	)
-	if cfg.GetJwksFetcher() != nil {
-		jwks = oidc.NewDynamicJWKSProvider(
-			context.TODO(),
-			cfg.GetJwksFetcher().GetJwksUri(),
-			time.Duration(cfg.GetJwksFetcher().GetPeriodicFetchIntervalSec())*time.Second,
-		)
-	} else {
-		if jwks, err = oidc.NewStaticJWKSProvider(cfg.GetJwks()); err != nil {
-			return nil, err
-		}
-	}
 
 	return &oidcHandler{
 		log:    internal.Logger(internal.Authz).With("type", "oidc"),

@@ -28,6 +28,8 @@ import (
 	"github.com/lestrrat-go/jwx/jwa"
 	"github.com/lestrrat-go/jwx/jwk"
 	"github.com/stretchr/testify/require"
+
+	oidcv1 "github.com/tetrateio/authservice-go/config/gen/go/v1/oidc"
 )
 
 // nolint: lll
@@ -72,15 +74,30 @@ var (
 
 func TestStaticJWKSProvider(t *testing.T) {
 	t.Run("invalid", func(t *testing.T) {
-		_, err := NewStaticJWKSProvider("{aaa}")
+		cache := NewJWKSProvider()
+		go func() { require.NoError(t, cache.Serve()) }()
+		t.Cleanup(cache.GracefulStop)
+
+		_, err := cache.Get(context.Background(), &oidcv1.OIDCConfig{
+			JwksConfig: &oidcv1.OIDCConfig_Jwks{
+				Jwks: "{aaa}",
+			},
+		})
+
 		require.ErrorIs(t, err, ErrJWKSParse)
 	})
 
 	t.Run("single-key", func(t *testing.T) {
-		provider, err := NewStaticJWKSProvider(singleKey)
-		require.NoError(t, err)
+		cache := NewJWKSProvider()
+		go func() { require.NoError(t, cache.Serve()) }()
+		t.Cleanup(cache.GracefulStop)
 
-		jwks, err := provider.Get(context.Background())
+		jwks, err := cache.Get(context.Background(), &oidcv1.OIDCConfig{
+			JwksConfig: &oidcv1.OIDCConfig_Jwks{
+				Jwks: singleKey,
+			},
+		})
+
 		require.NoError(t, err)
 		require.Equal(t, 1, jwks.Len())
 
@@ -92,10 +109,16 @@ func TestStaticJWKSProvider(t *testing.T) {
 	})
 
 	t.Run("multiple-keys", func(t *testing.T) {
-		provider, err := NewStaticJWKSProvider(keys)
-		require.NoError(t, err)
+		cache := NewJWKSProvider()
+		go func() { require.NoError(t, cache.Serve()) }()
+		t.Cleanup(cache.GracefulStop)
 
-		jwks, err := provider.Get(context.Background())
+		jwks, err := cache.Get(context.Background(), &oidcv1.OIDCConfig{
+			JwksConfig: &oidcv1.OIDCConfig_Jwks{
+				Jwks: keys,
+			},
+		})
+
 		require.NoError(t, err)
 		require.Equal(t, 2, jwks.Len())
 
@@ -115,31 +138,55 @@ func TestStaticJWKSProvider(t *testing.T) {
 
 func TestDynamicJWKSProvider(t *testing.T) {
 	var (
-		pub      = newKey(t)
-		jwks     = newKeySet(pub)
-		interval = 50 * time.Millisecond
+		pub  = newKey(t)
+		jwks = newKeySet(pub)
 
-		newCache = func(t *testing.T, server *server) JWKSProvider {
-			ctx, cancel := context.WithCancel(context.Background())
-			t.Cleanup(cancel)
-			return NewDynamicJWKSProvider(ctx, server.URL, interval)
+		newCache = func(t *testing.T) JWKSProvider {
+			cache := NewJWKSProvider()
+			go func() { require.NoError(t, cache.Serve()) }()
+			t.Cleanup(cache.GracefulStop)
+			// Block until the cache is initialized
+			require.Eventually(t, func() bool {
+				return cache.cache != nil
+			}, 10*time.Second, 50*time.Millisecond)
+			return cache
 		}
 	)
 
 	t.Run("invalid url", func(t *testing.T) {
 		server := newTestServer(t, jwks)
-		ctx, cancel := context.WithCancel(context.Background())
-		t.Cleanup(cancel)
-		cache := NewDynamicJWKSProvider(ctx, server.URL+"/not-found", interval)
-		_, err := cache.Get(context.Background())
+		cache := newCache(t)
+
+		config := &oidcv1.OIDCConfig{
+			JwksConfig: &oidcv1.OIDCConfig_JwksFetcher{
+				JwksFetcher: &oidcv1.OIDCConfig_JwksFetcherConfig{
+					JwksUri:                  server.URL + "/not-found",
+					PeriodicFetchIntervalSec: 1,
+				},
+			},
+		}
+
+		_, err := cache.Get(context.Background(), config)
 
 		require.ErrorIs(t, err, ErrJWKSFetch)
 		require.Equal(t, 1, server.requestCount) // The attempt to load the JWKS is made, but fails
 	})
 
-	t.Run("initial cache load", func(t *testing.T) {
+	t.Run("cache load", func(t *testing.T) {
 		server := newTestServer(t, jwks)
-		keys, err := newCache(t, server).Get(context.Background())
+		cache := newCache(t)
+
+		config := &oidcv1.OIDCConfig{
+			JwksConfig: &oidcv1.OIDCConfig_JwksFetcher{
+				JwksFetcher: &oidcv1.OIDCConfig_JwksFetcherConfig{
+					JwksUri:                  server.URL,
+					PeriodicFetchIntervalSec: 1,
+					SkipVerifyPeerCert:       true,
+				},
+			},
+		}
+
+		keys, err := cache.Get(context.Background(), config)
 		require.NoError(t, err)
 		require.Equal(t, jwks, keys)
 		require.Equal(t, 1, server.requestCount)
@@ -147,12 +194,19 @@ func TestDynamicJWKSProvider(t *testing.T) {
 
 	t.Run("cached results", func(t *testing.T) {
 		server := newTestServer(t, jwks)
-		ctx, cancel := context.WithCancel(context.Background())
-		t.Cleanup(cancel)
-		cache := NewDynamicJWKSProvider(ctx, server.URL, 1*time.Hour)
+		cache := newCache(t)
+
+		config := &oidcv1.OIDCConfig{
+			JwksConfig: &oidcv1.OIDCConfig_JwksFetcher{
+				JwksFetcher: &oidcv1.OIDCConfig_JwksFetcherConfig{
+					JwksUri:                  server.URL,
+					PeriodicFetchIntervalSec: 60,
+				},
+			},
+		}
 
 		for i := 0; i < 5; i++ {
-			keys, err := cache.Get(context.Background())
+			keys, err := cache.Get(context.Background(), config)
 			require.NoError(t, err)
 			require.Equal(t, jwks, keys)
 			require.Equal(t, 1, server.requestCount) // Cached results after the first request
@@ -161,16 +215,26 @@ func TestDynamicJWKSProvider(t *testing.T) {
 
 	t.Run("cache refresh", func(t *testing.T) {
 		server := newTestServer(t, jwks)
-		cache := newCache(t, server)
+		cache := newCache(t)
+
+		config := &oidcv1.OIDCConfig{
+			JwksConfig: &oidcv1.OIDCConfig_JwksFetcher{
+				JwksFetcher: &oidcv1.OIDCConfig_JwksFetcherConfig{
+					JwksUri:                  server.URL,
+					PeriodicFetchIntervalSec: 1,
+				},
+			},
+		}
 
 		// Load the entry in the cache and remove it to let the background refresher refresh it
-		_, err := cache.Get(context.Background())
+		_, err := cache.Get(context.Background(), config)
 		require.NoError(t, err)
 		jwks.Remove(pub)
 
 		// Wait for the refresh period and check that the JWKS has been refreshed
-		time.Sleep(interval*2 + 1)
-		require.Equal(t, 2, server.requestCount)
+		require.Eventually(t, func() bool {
+			return server.requestCount > 1
+		}, 3*time.Second, 1*time.Second)
 	})
 }
 
