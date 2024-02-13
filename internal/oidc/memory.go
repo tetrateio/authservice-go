@@ -50,6 +50,7 @@ func NewMemoryStore(clock *Clock, absoluteSessionTimeout, idleSessionTimeout tim
 
 func (m *memoryStore) SetTokenResponse(_ context.Context, sessionID string, tokenResponse *TokenResponse) error {
 	m.set(sessionID, func(s *session) {
+		m.log.Debug("setting token response", "session-id", sessionID)
 		s.tokenResponse = tokenResponse
 	})
 	return nil
@@ -58,6 +59,7 @@ func (m *memoryStore) SetTokenResponse(_ context.Context, sessionID string, toke
 func (m *memoryStore) GetTokenResponse(_ context.Context, sessionID string) (*TokenResponse, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.log.Debug("getting token response", "session-id", sessionID)
 
 	s := m.sessions[sessionID]
 	if s == nil {
@@ -70,6 +72,7 @@ func (m *memoryStore) GetTokenResponse(_ context.Context, sessionID string) (*To
 
 func (m *memoryStore) SetAuthorizationState(_ context.Context, sessionID string, authorizationState *AuthorizationState) error {
 	m.set(sessionID, func(s *session) {
+		m.log.Debug("setting authorization state", "session-id", sessionID)
 		s.authorizationState = authorizationState
 	})
 	return nil
@@ -78,6 +81,7 @@ func (m *memoryStore) SetAuthorizationState(_ context.Context, sessionID string,
 func (m *memoryStore) GetAuthorizationState(_ context.Context, sessionID string) (*AuthorizationState, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.log.Debug("getting authorization state", "session-id", sessionID)
 
 	s := m.sessions[sessionID]
 	if s == nil {
@@ -91,6 +95,7 @@ func (m *memoryStore) GetAuthorizationState(_ context.Context, sessionID string)
 func (m *memoryStore) ClearAuthorizationState(_ context.Context, sessionID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.log.Debug("clearing authorization state", "session-id", sessionID)
 
 	if s := m.sessions[sessionID]; s != nil {
 		s.accessed = m.clock.Now()
@@ -103,6 +108,7 @@ func (m *memoryStore) ClearAuthorizationState(_ context.Context, sessionID strin
 func (m *memoryStore) RemoveSession(_ context.Context, sessionID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.log.Debug("removing session", "session-id", sessionID)
 
 	delete(m.sessions, sessionID)
 
@@ -119,6 +125,7 @@ func (m *memoryStore) RemoveAllExpired(context.Context) error {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.log.Debug("removing expired sessions")
 
 	for sessionID, s := range m.sessions {
 		expiredBasedOnTimeAdded := shouldCheckAbsoluteTimeout && s.added.Before(earliestTimeAddedToKeep)

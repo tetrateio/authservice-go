@@ -16,6 +16,7 @@ package oidc
 
 import (
 	"context"
+	"math/rand"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -95,4 +96,79 @@ func (s *SessionStoreFactory) Get(cfg *oidcv1.OIDCConfig) SessionStore {
 		store = s.memory
 	}
 	return store
+}
+
+// SessionGenerator is an interface for generating session data.
+type SessionGenerator interface {
+	GenerateSessionID() string
+	GenerateNonce() string
+	GenerateState() string
+}
+
+var (
+	_ SessionGenerator = (*randomGenerator)(nil)
+	_ SessionGenerator = (*staticGenerator)(nil)
+)
+
+type (
+	// randomGenerator is a session generator that uses random strings.
+	randomGenerator struct {
+		rand *rand.Rand
+	}
+
+	// staticGenerator is a session generator that uses static strings.
+	staticGenerator struct {
+		sessionID string
+		nonce     string
+		state     string
+	}
+)
+
+// NewRandomGenerator creates a new random session generator.
+func NewRandomGenerator() SessionGenerator {
+	return &randomGenerator{
+		rand: rand.New(rand.NewSource(time.Now().UnixNano())),
+	}
+}
+
+func (r randomGenerator) GenerateSessionID() string {
+	return r.generate(64)
+}
+
+func (r randomGenerator) GenerateNonce() string {
+	return r.generate(32)
+}
+
+func (r randomGenerator) GenerateState() string {
+	return r.generate(32)
+}
+
+func (r *randomGenerator) generate(n int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = charset[r.rand.Intn(len(charset))]
+	}
+	return string(b)
+}
+
+// NewStaticGenerator creates a new static session generator.
+func NewStaticGenerator(sessionID, nonce, state string) SessionGenerator {
+	return &staticGenerator{
+		sessionID: sessionID,
+		nonce:     nonce,
+		state:     state,
+	}
+}
+
+func (s staticGenerator) GenerateSessionID() string {
+	return s.sessionID
+}
+
+func (s staticGenerator) GenerateNonce() string {
+	return s.nonce
+}
+
+func (s staticGenerator) GenerateState() string {
+	return s.state
 }

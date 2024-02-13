@@ -119,7 +119,7 @@ func (e *ExtAuthZFilter) Check(ctx context.Context, req *envoy.CheckRequest) (re
 				h = authz.NewMockHandler(ft.Mock)
 			case *configv1.Filter_Oidc:
 				// TODO(nacx): Check if the Oidc setting is enough or we have to pull the default Oidc settings
-				if h, err = authz.NewOIDCHandler(ft.Oidc, e.jwks, e.sessions); err != nil {
+				if h, err = authz.NewOIDCHandler(ft.Oidc, e.jwks, e.sessions, oidc.Clock{}, oidc.NewRandomGenerator()); err != nil {
 					return nil, err
 				}
 			}
