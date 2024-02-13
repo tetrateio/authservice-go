@@ -58,6 +58,7 @@ func TestValidateConfig(t *testing.T) {
 		{"invalid-values", "testdata/invalid-values.json", errCheck{as: &configv1.ConfigMultiError{}}},
 		{"duplicate-oidc", "testdata/duplicate-oidc.json", errCheck{is: ErrDuplicateOIDCConfig}},
 		{"invalid-oidc-override", "testdata/invalid-oidc-override.json", errCheck{is: ErrInvalidOIDCOverride}},
+		{"multiple-oidc", "testdata/multiple-oidc.json", errCheck{is: ErrMultipleOIDCConfig}},
 		{"valid", "testdata/mock.json", errCheck{is: nil}},
 	}
 

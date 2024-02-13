@@ -36,6 +36,8 @@ var (
 	ErrInvalidOIDCOverride = errors.New("invalid OIDC override")
 	// ErrDuplicateOIDCConfig is returned when the OIDC configuration is duplicated.
 	ErrDuplicateOIDCConfig = errors.New("duplicate OIDC configuration")
+	// ErrMultipleOIDCConfig is returned  ultiple OIDC configurations are set in the same filter chain.
+	ErrMultipleOIDCConfig = errors.New("multiple OIDC configurations")
 )
 
 // LocalConfigFile is a run.Config that loads the configuration file.
@@ -72,6 +74,7 @@ func (l *LocalConfigFile) Validate() error {
 
 	// Validate OIDC configuration overrides
 	for _, fc := range l.Config.Chains {
+		hasOidc := false
 		for _, f := range fc.Filters {
 			if l.Config.DefaultOidcConfig != nil && f.GetOidc() != nil {
 				return fmt.Errorf("%w: in chain %q OIDC filter and default OIDC configuration cannot be used together",
@@ -80,6 +83,12 @@ func (l *LocalConfigFile) Validate() error {
 			if l.Config.DefaultOidcConfig == nil && f.GetOidcOverride() != nil {
 				return fmt.Errorf("%w: in chain %q OIDC override filter requires a default OIDC configuration",
 					ErrInvalidOIDCOverride, fc.Name)
+			}
+			if f.GetOidc() != nil || f.GetOidcOverride() != nil {
+				if hasOidc {
+					return fmt.Errorf("%w: ionly one OIDC configuration is allowed in a chain", ErrMultipleOIDCConfig)
+				}
+				hasOidc = true
 			}
 		}
 	}
