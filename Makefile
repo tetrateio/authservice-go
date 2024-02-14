@@ -118,6 +118,8 @@ coverage:  ## Creates coverage report for all projects
 e2e:  ## Runt he e2e tests
 	@$(MAKE) -C e2e e2e
 
+e2e/%:
+	@$(MAKE) -C e2e $(@)
 
 ##@ Docker targets
 

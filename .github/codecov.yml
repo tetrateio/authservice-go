@@ -18,8 +18,7 @@ coverage:
     project:
       default:
         target: auto
-        # allow a potential drop of up to 5%
-        threshold: 5%
+        threshold: 0%
     patch:
       default:
         target: auto
