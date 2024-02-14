@@ -61,8 +61,8 @@ type redisStore struct {
 
 // NewRedisStore creates a new SessionStore that stores the session data in a given Redis server.
 func NewRedisStore(clock *Clock, client redis.Cmdable, absoluteSessionTimeout, idleSessionTimeout time.Duration) (SessionStore, error) {
-	if res := client.Ping(context.TODO()); res.Err() != nil {
-		return nil, res.Err()
+	if err := client.Ping(context.TODO()).Err(); err != nil {
+		return nil, err
 	}
 
 	return &redisStore{

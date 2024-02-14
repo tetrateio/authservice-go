@@ -40,8 +40,9 @@ func TestRedisTokenResponse(t *testing.T) {
 
 	// Create a session and verify it's added and accessed time
 	tr = &TokenResponse{
-		IDToken:     newToken(),
-		AccessToken: newToken(),
+		IDToken:      newToken(),
+		AccessToken:  newToken(),
+		RefreshToken: newToken(),
 	}
 	require.NoError(t, store.SetTokenResponse(ctx, "s1", tr))
 
@@ -55,6 +56,17 @@ func TestRedisTokenResponse(t *testing.T) {
 	ttl := client.TTL(ctx, "s1").Val()
 	require.Greater(t, added.Unix(), int64(0))
 	require.Greater(t, ttl, time.Duration(0))
+
+	// Check keys are deleted
+	tr.AccessToken = ""
+	tr.RefreshToken = ""
+	require.NoError(t, store.SetTokenResponse(ctx, "s1", tr))
+
+	var rt redisToken
+	vals := client.HMGet(ctx, "s1", keyAccessToken, keyRefreshToken)
+	require.NoError(t, vals.Scan(&rt))
+	require.Empty(t, rt.AccessToken)
+	require.Empty(t, rt.RefreshToken)
 }
 
 func newToken() string {
