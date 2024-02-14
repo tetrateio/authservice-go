@@ -23,36 +23,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestTokenResponse(t *testing.T) {
+func TestParseIDToken(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		tr := &TokenResponse{
-			IDToken:      newToken(),
-			AccessToken:  newToken(),
-			RefreshToken: newToken(),
+			IDToken: newToken(),
 		}
 
-		it, err := tr.GetIDToken()
+		it, err := tr.ParseIDToken()
 		require.NoError(t, err)
 		require.Equal(t, "authservice", it.Issuer())
-
-		at, err := tr.GetAccessToken()
-		require.NoError(t, err)
-		require.Equal(t, "authservice", at.Issuer())
-
-		rt, err := tr.GetRefreshToken()
-		require.NoError(t, err)
-		require.Equal(t, "authservice", rt.Issuer())
 	})
 
 	t.Run("invalid", func(t *testing.T) {
 		tr := &TokenResponse{}
-		_, err := tr.GetIDToken()
-		require.Error(t, err)
-
-		_, err = tr.GetAccessToken()
-		require.Error(t, err)
-
-		_, err = tr.GetRefreshToken()
+		_, err := tr.ParseIDToken()
 		require.Error(t, err)
 	})
 }

@@ -38,15 +38,21 @@ func TestRedisTokenResponse(t *testing.T) {
 
 	// Create a session and verify it's added and accessed time
 	tr = &TokenResponse{
-		IDToken:      newToken(),
-		AccessToken:  newToken(),
-		RefreshToken: newToken(),
+		IDToken:              newToken(),
+		AccessToken:          newToken(),
+		AccessTokenExpiresAt: time.Now().Add(30 * time.Minute),
+		RefreshToken:         newToken(),
 	}
 	require.NoError(t, store.SetTokenResponse(ctx, "s1", tr))
 
 	// Verify we can retrieve the token
 	got, err := store.GetTokenResponse(ctx, "s1")
 	require.NoError(t, err)
+	// The testify library doesn't properly compare times, so we need to do it manually
+	// then set the times in the returned object so that we can compare the rest of the
+	// fields normally
+	require.True(t, tr.AccessTokenExpiresAt.Equal(got.AccessTokenExpiresAt))
+	got.AccessTokenExpiresAt = tr.AccessTokenExpiresAt
 	require.Equal(t, tr, got)
 
 	// Verify that the token TTL has been set
@@ -74,4 +80,31 @@ func TestRedisPingError(t *testing.T) {
 
 	_, err := NewRedisStore(&Clock{}, client, 0, 1*time.Minute)
 	require.EqualError(t, err, "ping error")
+}
+
+func TestRefreshExpiration(t *testing.T) {
+	mr := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store, err := NewRedisStore(&Clock{}, client, 0, 0)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	t.Run("delete session if no time added", func(t *testing.T) {
+		require.NoError(t, client.HSet(ctx, "s1", keyAccessToken, "").Err())
+		err := store.(*redisStore).refreshExpiration(ctx, "s1", time.Time{})
+		require.ErrorIs(t, err, ErrRedis)
+		require.Equal(t, redis.Nil, client.Get(ctx, "s1").Err())
+	})
+
+	t.Run("no expiration set if no timeouts", func(t *testing.T) {
+		require.NoError(t, client.HSet(ctx, "s1", keyTimeAdded, time.Now()).Err())
+		require.NoError(t, store.(*redisStore).refreshExpiration(ctx, "s1", time.Time{}))
+
+		res, err := client.TTL(ctx, "s1").Result()
+		require.NoError(t, err)
+		require.Equal(t, time.Duration(-1), res)
+	})
+
+	// TODO(nacx): Expiration is updated
 }

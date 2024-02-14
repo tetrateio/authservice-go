@@ -33,17 +33,18 @@ var (
 )
 
 const (
-	keyIDToken      = "id_token"
-	keyAccessToken  = "access_token"
-	keyRefreshToken = "refresh_token"
-	keyState        = "state"
-	keyNonce        = "nonce"
-	keyRequestedURL = "requested_url"
-	keyTimeAdded    = "time_added"
+	keyIDToken           = "id_token"
+	keyAccessToken       = "access_token"
+	keyAccessTokenExpiry = "access_token_expiry"
+	keyRefreshToken      = "refresh_token"
+	keyState             = "state"
+	keyNonce             = "nonce"
+	keyRequestedURL      = "requested_url"
+	keyTimeAdded         = "time_added"
 )
 
 var (
-	tokenResponseKeys = []string{keyIDToken, keyAccessToken, keyRefreshToken, keyTimeAdded}
+	tokenResponseKeys = []string{keyIDToken, keyAccessToken, keyRefreshToken, keyAccessTokenExpiry, keyTimeAdded}
 	// authorizationStateKeys = []string{keyState, keyNonce, keyRequestedURL, keyTimeAdded}
 )
 
@@ -89,6 +90,14 @@ func (r *redisStore) SetTokenResponse(ctx context.Context, sessionID string, tok
 		keysToDelete = append(keysToDelete, keyAccessToken)
 	}
 
+	if !tokenResponse.AccessTokenExpiresAt.IsZero() {
+		if err := r.client.HSet(ctx, sessionID, keyAccessTokenExpiry, tokenResponse.AccessTokenExpiresAt).Err(); err != nil {
+			return err
+		}
+	} else {
+		keysToDelete = append(keysToDelete, keyAccessTokenExpiry)
+	}
+
 	if tokenResponse.RefreshToken != "" {
 		if err := r.client.HSet(ctx, sessionID, keyRefreshToken, tokenResponse.RefreshToken).Err(); err != nil {
 			return err
@@ -130,7 +139,7 @@ func (r *redisStore) GetTokenResponse(ctx context.Context, sessionID string) (*T
 	}
 
 	tokenResponse := token.TokenResponse()
-	if _, err := tokenResponse.GetIDToken(); err != nil {
+	if _, err := tokenResponse.ParseIDToken(); err != nil {
 		log.Error("failed to parse id token", err, "session_id", sessionID, "token", token)
 		return nil, nil
 	}
@@ -180,16 +189,18 @@ func (r *redisStore) refreshExpiration(ctx context.Context, sessionID string, ti
 }
 
 type redisToken struct {
-	IDToken      string    `redis:"id_token"`
-	AccessToken  string    `redis:"access_token"`
-	RefreshToken string    `redis:"refresh_token"`
-	TimeAdded    time.Time `redis:"time_added"`
+	IDToken              string    `redis:"id_token"`
+	AccessToken          string    `redis:"access_token"`
+	AccessTokenExpiresAt time.Time `redis:"access_token_expiry"`
+	RefreshToken         string    `redis:"refresh_token"`
+	TimeAdded            time.Time `redis:"time_added"`
 }
 
 func (r redisToken) TokenResponse() TokenResponse {
 	return TokenResponse{
-		IDToken:      r.IDToken,
-		AccessToken:  r.AccessToken,
-		RefreshToken: r.RefreshToken,
+		IDToken:              r.IDToken,
+		AccessToken:          r.AccessToken,
+		AccessTokenExpiresAt: r.AccessTokenExpiresAt,
+		RefreshToken:         r.RefreshToken,
 	}
 }

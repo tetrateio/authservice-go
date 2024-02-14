@@ -45,14 +45,20 @@ func TestRedisTokenResponse(t *testing.T) {
 
 	// Create a session and verify it's added and accessed time
 	tr = &oidc.TokenResponse{
-		IDToken:     newToken(),
-		AccessToken: newToken(),
+		IDToken:              newToken(),
+		AccessToken:          newToken(),
+		AccessTokenExpiresAt: time.Now().Add(30 * time.Minute),
 	}
 	require.NoError(t, store.SetTokenResponse(ctx, "s1", tr))
 
 	// Verify we can retrieve the token
 	got, err := store.GetTokenResponse(ctx, "s1")
 	require.NoError(t, err)
+	// The testify library doesn't properly compare times, so we need to do it manually
+	// then set the times in the returned object so that we can compare the rest of the
+	// fields normally
+	require.True(t, tr.AccessTokenExpiresAt.Equal(got.AccessTokenExpiresAt))
+	got.AccessTokenExpiresAt = tr.AccessTokenExpiresAt
 	require.Equal(t, tr, got)
 
 	// Verify that the token TTL has been set

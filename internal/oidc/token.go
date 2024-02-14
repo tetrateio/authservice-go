@@ -15,19 +15,20 @@
 package oidc
 
 import (
+	"time"
+
 	"github.com/lestrrat-go/jwx/jwt"
 )
 
 // TokenResponse contains information about the tokens returned by the Identity Provider.
 type TokenResponse struct {
-	IDToken      string
-	AccessToken  string
-	RefreshToken string
+	IDToken              string
+	AccessToken          string
+	AccessTokenExpiresAt time.Time
+	RefreshToken         string
 }
 
-func (t *TokenResponse) GetIDToken() (jwt.Token, error)      { return parse(t.IDToken) }
-func (t *TokenResponse) GetAccessToken() (jwt.Token, error)  { return parse(t.AccessToken) }
-func (t *TokenResponse) GetRefreshToken() (jwt.Token, error) { return parse(t.RefreshToken) }
+func (t *TokenResponse) ParseIDToken() (jwt.Token, error) { return parse(t.IDToken) }
 
 func parse(token string) (jwt.Token, error) {
 	return jwt.Parse([]byte(token), jwt.WithValidate(false))
