@@ -14,11 +14,10 @@ ignore:
 
 coverage:
   status:
-    # require coverage to not be worse than previously
     project:
       default:
         target: auto
-        threshold: 0%
+        threshold: 5%
     patch:
       default:
         target: auto

@@ -93,3 +93,34 @@ func TestSessionStoreFactory(t *testing.T) {
 	require.Equal(t, redis1.Addr(), store.Get(config.Chains[2].Filters[0].GetOidc()).(*redisStore).client.(*redis.Client).Options().Addr)
 	require.Equal(t, redis2.Addr(), store.Get(config.Chains[3].Filters[0].GetOidc()).(*redisStore).client.(*redis.Client).Options().Addr)
 }
+
+func TestSessionStoreFactoryRedisFails(t *testing.T) {
+	mr := miniredis.RunT(t)
+	config := &configv1.Config{
+		ListenAddress: "0.0.0.0",
+		ListenPort:    8080,
+		LogLevel:      "debug",
+		Threads:       1,
+		Chains: []*configv1.FilterChain{
+			{
+				Name: "redis",
+				Filters: []*configv1.Filter{
+					{
+						Type: &configv1.Filter_Oidc{
+							Oidc: &oidcv1.OIDCConfig{
+								RedisSessionStoreConfig: &oidcv1.RedisConfig{ServerUri: "redis://" + mr.Addr()},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	store := SessionStoreFactory{Config: config}
+	g := run.Group{Logger: telemetry.NoopLogger()}
+	g.Register(&store)
+
+	mr.SetError("server error")
+	require.ErrorContains(t, g.Run(), "server error")
+}

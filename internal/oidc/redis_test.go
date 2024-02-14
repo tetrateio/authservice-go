@@ -20,8 +20,6 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/lestrrat-go/jwx/jwa"
-	"github.com/lestrrat-go/jwx/jwt"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
@@ -69,12 +67,11 @@ func TestRedisTokenResponse(t *testing.T) {
 	require.Empty(t, rt.RefreshToken)
 }
 
-func newToken() string {
-	token, _ := jwt.NewBuilder().
-		Issuer("authservice").
-		Subject("user").
-		Expiration(time.Now().Add(time.Hour)).
-		Build()
-	signed, _ := jwt.Sign(token, jwa.HS256, []byte("key"))
-	return string(signed)
+func TestRedisPingError(t *testing.T) {
+	mr := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	mr.SetError("ping error")
+
+	_, err := NewRedisStore(&Clock{}, client, 0, 1*time.Minute)
+	require.EqualError(t, err, "ping error")
 }
