@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -30,15 +31,11 @@ import (
 	"github.com/lestrrat-go/jwx/jwa"
 	"github.com/lestrrat-go/jwx/jwt"
 	"github.com/stretchr/testify/require"
-	"github.com/tetratelabs/log"
-	"github.com/tetratelabs/run"
 	"github.com/tetratelabs/telemetry"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/test/bufconn"
 
-	configv1 "github.com/tetrateio/authservice-go/config/gen/go/v1"
 	oidcv1 "github.com/tetrateio/authservice-go/config/gen/go/v1/oidc"
-	"github.com/tetrateio/authservice-go/internal"
 	inthttp "github.com/tetrateio/authservice-go/internal/http"
 	"github.com/tetrateio/authservice-go/internal/oidc"
 )
@@ -86,6 +83,13 @@ var (
 		},
 	}
 
+	requestedAppURL = "https://localhost:443/final-app"
+	validAuthState  = &oidc.AuthorizationState{
+		Nonce:        newNonce,
+		State:        newState,
+		RequestedURL: requestedAppURL,
+	}
+
 	yesterday = time.Now().Add(-24 * time.Hour)
 	tomorrow  = time.Now().Add(24 * time.Hour)
 
@@ -93,12 +97,8 @@ var (
 	newSessionID = "new-session-id"
 	newNonce     = "new-nonce"
 	newState     = "new-state"
-)
 
-func TestOIDCProcess(t *testing.T) {
-	require.NoError(t, internal.NewLogSystem(log.New(), &configv1.Config{LogLevel: "debug"}).(run.PreRunner).PreRun())
-
-	cfg := &oidcv1.OIDCConfig{
+	basicOIDCConfig = &oidcv1.OIDCConfig{
 		IdToken: &oidcv1.TokenConfig{
 			Header:   "Authorization",
 			Preamble: "Bearer",
@@ -114,7 +114,9 @@ func TestOIDCProcess(t *testing.T) {
 		ClientSecret:     "test-client-secret",
 		Scopes:           []string{"openid", "email"},
 	}
+)
 
+func TestOIDCProcess(t *testing.T) {
 	wantRedirectParams := url.Values{}
 	wantRedirectParams.Add("response_type", "code")
 	wantRedirectParams.Add("client_id", "test-client-id")
@@ -125,9 +127,9 @@ func TestOIDCProcess(t *testing.T) {
 	wantRedirectBaseURI := "http://idp-test-server/auth"
 
 	clock := oidc.Clock{}
-	sessions := inMemSessionFactory(t)
-	store := sessions.Get(cfg)
-	h, err := NewOIDCHandler(cfg, oidc.NewJWKSProvider(), sessions, clock, oidc.NewStaticGenerator(newSessionID, newNonce, newState))
+	sessions := &mockSessionStoreFactory{store: oidc.NewMemoryStore(&clock, time.Hour, time.Hour)}
+	store := sessions.Get(basicOIDCConfig)
+	h, err := NewOIDCHandler(basicOIDCConfig, oidc.NewJWKSProvider(), sessions, clock, oidc.NewStaticGenerator(newSessionID, newNonce, newState))
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -204,7 +206,7 @@ func TestOIDCProcess(t *testing.T) {
 			responseVerify: func(t *testing.T, resp *envoy.CheckResponse) {
 				require.Equal(t, int32(codes.OK), resp.GetStatus().GetCode())
 				require.NotNil(t, resp.GetOkResponse())
-				requireTokensInResponse(t, resp.GetOkResponse(), cfg, newJWT(t, jwt.NewBuilder().Expiration(tomorrow)), "access-token")
+				requireTokensInResponse(t, resp.GetOkResponse(), basicOIDCConfig, newJWT(t, jwt.NewBuilder().Expiration(tomorrow)), "access-token")
 				// The sessionID should not have been changed
 				requireStoredTokens(t, store, sessionID, true)
 				requireStoredState(t, store, newSessionID, false)
@@ -235,12 +237,6 @@ func TestOIDCProcess(t *testing.T) {
 	idpServer := newServer()
 	h.(*oidcHandler).httpClient = idpServer.newHTTPClient()
 
-	validAuthState := &oidc.AuthorizationState{
-		Nonce:        newNonce,
-		State:        newState,
-		RequestedURL: "https://localhost:443/final-app",
-	}
-
 	callbackTests := []struct {
 		name               string
 		req                *envoy.CheckRequest
@@ -261,14 +257,14 @@ func TestOIDCProcess(t *testing.T) {
 			responseVerify: func(t *testing.T, resp *envoy.CheckResponse) {
 				require.Equal(t, int32(codes.Unauthenticated), resp.GetStatus().GetCode())
 				requireStandardResponseHeaders(t, resp)
-				requireRedirectResponse(t, resp.GetDeniedResponse(), "https://localhost:443/final-app", nil)
+				requireRedirectResponse(t, resp.GetDeniedResponse(), requestedAppURL, nil)
 				requireStoredTokens(t, store, sessionID, true)
 				requireStoredTokens(t, store, newSessionID, false)
 			},
 		},
 		{
 			name: "request is invalid, query parameters are missing",
-			req:  modifyCallbackRequestPaht("/callback?"),
+			req:  modifyCallbackRequestPath("/callback?"),
 			responseVerify: func(t *testing.T, response *envoy.CheckResponse) {
 				require.Equal(t, int32(codes.InvalidArgument), response.GetStatus().GetCode())
 				requireStandardResponseHeaders(t, response)
@@ -277,7 +273,7 @@ func TestOIDCProcess(t *testing.T) {
 		},
 		{
 			name: "request is invalid, query has invalid format",
-			req:  modifyCallbackRequestPaht("/callback?invalid;format"),
+			req:  modifyCallbackRequestPath("/callback?invalid;format"),
 			responseVerify: func(t *testing.T, response *envoy.CheckResponse) {
 				require.Equal(t, int32(codes.InvalidArgument), response.GetStatus().GetCode())
 				requireStandardResponseHeaders(t, response)
@@ -286,7 +282,7 @@ func TestOIDCProcess(t *testing.T) {
 		},
 		{
 			name: "request is invalid, state is missing",
-			req:  modifyCallbackRequestPaht("/callback?code=auth-code"),
+			req:  modifyCallbackRequestPath("/callback?code=auth-code"),
 			responseVerify: func(t *testing.T, response *envoy.CheckResponse) {
 				require.Equal(t, int32(codes.InvalidArgument), response.GetStatus().GetCode())
 				requireStandardResponseHeaders(t, response)
@@ -295,7 +291,7 @@ func TestOIDCProcess(t *testing.T) {
 		},
 		{
 			name: "request is invalid, code is missing",
-			req:  modifyCallbackRequestPaht("/callback?state=new-state"),
+			req:  modifyCallbackRequestPath("/callback?state=new-state"),
 			responseVerify: func(t *testing.T, response *envoy.CheckResponse) {
 				require.Equal(t, int32(codes.InvalidArgument), response.GetStatus().GetCode())
 				requireStandardResponseHeaders(t, response)
@@ -319,7 +315,7 @@ func TestOIDCProcess(t *testing.T) {
 			storedAuthState: &oidc.AuthorizationState{
 				Nonce:        newNonce,
 				State:        "non-matching-state",
-				RequestedURL: "https://localhost:443/final-app",
+				RequestedURL: requestedAppURL,
 			},
 			responseVerify: func(t *testing.T, response *envoy.CheckResponse) {
 				require.Equal(t, int32(codes.InvalidArgument), response.GetStatus().GetCode())
@@ -369,7 +365,7 @@ func TestOIDCProcess(t *testing.T) {
 			storedAuthState: &oidc.AuthorizationState{
 				Nonce:        "old-nonce",
 				State:        newState,
-				RequestedURL: "https://localhost:443/final-app",
+				RequestedURL: requestedAppURL,
 			},
 			mockTokensResponse: &tokensResponse{
 				IDToken: newJWT(t, jwt.NewBuilder().Claim("nonce", "non-matching-nonce")),
@@ -477,166 +473,89 @@ func TestOIDCProcess(t *testing.T) {
 		})
 	}
 }
-func modifyCallbackRequestPaht(path string) *envoy.CheckRequest {
-	return &envoy.CheckRequest{
-		Attributes: &envoy.AttributeContext{
-			Request: &envoy.AttributeContext_Request{
-				Http: &envoy.AttributeContext_HttpRequest{
-					Id:     "request-id",
-					Scheme: "https", Host: "localhost:443", Path: path,
-					Method: "GET",
-					Headers: map[string]string{
-						inthttp.HeaderCookie: defaultCookieName + "=test-session-id",
-					},
-				},
-			},
+
+func TestOIDCProcessWithFailingSessionStore(t *testing.T) {
+	store := &storeMock{delegate: oidc.NewMemoryStore(&oidc.Clock{}, time.Hour, time.Hour)}
+	sessions := &mockSessionStoreFactory{store: store}
+
+	h, err := NewOIDCHandler(basicOIDCConfig, oidc.NewJWKSProvider(), sessions, oidc.Clock{}, oidc.NewStaticGenerator(newSessionID, newNonce, newState))
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// The following subset of tests is testing the requests to the app, not any callback or auth flow.
+	// So there's no expected communication with any external server.
+	requestToAppTests := []struct {
+		name        string
+		storeErrors map[int]bool
+	}{
+		{
+			name:        "app request - fails to get token response from given session ID",
+			storeErrors: map[int]bool{getTokenResponse: true},
+		},
+		{
+			name:        "app request (redirect to IDP) - fails to remove old session",
+			storeErrors: map[int]bool{removeSession: true},
+		},
+		{
+			name:        "app request (redirect to IDP) - fails to set new authorization state",
+			storeErrors: map[int]bool{setAuthorizationState: true},
 		},
 	}
-}
 
-func newJWT(t *testing.T, builder *jwt.Builder) string {
-	token, err := builder.Build()
-	require.NoError(t, err)
-	signed, err := jwt.Sign(token, jwa.HS256, []byte("key"))
-	require.NoError(t, err)
-	return string(signed)
-}
-
-func requireStoredTokens(t *testing.T, store oidc.SessionStore, sessionID string, wantExists bool) {
-	got, err := store.GetTokenResponse(context.Background(), sessionID)
-	require.NoError(t, err)
-	if wantExists {
-		require.NotNil(t, got)
-	} else {
-		require.Nil(t, got)
-	}
-}
-func requireStoredState(t *testing.T, store oidc.SessionStore, sessionID string, wantExists bool) {
-	got, err := store.GetAuthorizationState(context.Background(), sessionID)
-	require.NoError(t, err)
-	if wantExists {
-		require.NotNil(t, got)
-	} else {
-		require.Nil(t, got)
-	}
-}
-
-func requireRedirectResponse(t *testing.T, response *envoy.DeniedHttpResponse, wantRedirectBaseURI string, wantRedirectParams url.Values) {
-	var locationHeader string
-	for _, header := range response.GetHeaders() {
-		if header.GetHeader().GetKey() == inthttp.HeaderLocation {
-			locationHeader = header.GetHeader().GetValue()
-		}
+	for _, tt := range requestToAppTests {
+		t.Run(tt.name, func(t *testing.T) {
+			store.errs = tt.storeErrors
+			t.Cleanup(func() { store.errs = nil })
+			resp := &envoy.CheckResponse{}
+			require.NoError(t, h.Process(ctx, withSessionHeader, resp))
+			requireSessionErrorResponse(t, resp)
+		})
 	}
 
-	require.Equal(t, typev3.StatusCode_Found, response.GetStatus().GetCode())
-	got, err := url.Parse(locationHeader)
-	require.NoError(t, err)
-
-	require.Equal(t, wantRedirectBaseURI, got.Scheme+"://"+got.Host+got.Path)
-
-	gotParams := got.Query()
-	for k, v := range wantRedirectParams {
-		require.Equal(t, v, gotParams[k])
+	idpServer := newServer()
+	idpServer.statusCode = http.StatusOK
+	idpServer.tokensResponse = &tokensResponse{
+		IDToken:     newJWT(t, jwt.NewBuilder().Audience([]string{"test-client-id"}).Claim("nonce", newNonce)),
+		AccessToken: "access-token",
+		TokenType:   "Bearer",
 	}
-	require.Len(t, gotParams, len(wantRedirectParams))
+	idpServer.Start()
+	t.Cleanup(idpServer.Stop)
+	h.(*oidcHandler).httpClient = idpServer.newHTTPClient()
 
-}
-
-func requireCookie(t *testing.T, response *envoy.DeniedHttpResponse) {
-	var cookieHeader string
-	for _, header := range response.GetHeaders() {
-		if header.GetHeader().GetKey() == inthttp.HeaderSetCookie {
-			cookieHeader = header.GetHeader().GetValue()
-		}
-	}
-	require.Equal(t, "__Host-authservice-session-id-cookie=new-session-id; HttpOnly; Secure; SameSite=Lax; Path=/", cookieHeader)
-}
-
-func requireTokensInResponse(t *testing.T, resp *envoy.OkHttpResponse, cfg *oidcv1.OIDCConfig, idToken, accessToken string) {
-	var (
-		gotIDToken, gotAccessToken   string
-		wantIDToken, wantAccessToken string
-	)
-
-	wantIDToken = cfg.GetIdToken().GetPreamble() + " " + base64.URLEncoding.EncodeToString([]byte(idToken))
-	if cfg.GetAccessToken() != nil {
-		wantAccessToken = cfg.GetAccessToken().GetPreamble() + " " + base64.URLEncoding.EncodeToString([]byte(accessToken))
-	}
-
-	for _, header := range resp.GetHeaders() {
-		if header.GetHeader().GetKey() == cfg.GetIdToken().GetHeader() {
-			gotIDToken = header.GetHeader().GetValue()
-		}
-		if header.GetHeader().GetKey() == cfg.GetAccessToken().GetHeader() {
-			gotAccessToken = header.GetHeader().GetValue()
-		}
-	}
-
-	require.Equal(t, wantIDToken, gotIDToken)
-	if cfg.GetAccessToken() != nil {
-		require.Equal(t, wantAccessToken, gotAccessToken)
-	} else {
-		require.Empty(t, gotAccessToken)
-	}
-}
-
-func requireStandardResponseHeaders(t *testing.T, resp *envoy.CheckResponse) {
-	for _, header := range resp.GetDeniedResponse().GetHeaders() {
-		if header.GetHeader().GetKey() == inthttp.HeaderCacheControl {
-			require.EqualValues(t, inthttp.HeaderCacheControlNoCache, header.GetHeader().GetValue())
-		}
-		if header.GetHeader().GetKey() == inthttp.HeaderPragma {
-			require.EqualValues(t, inthttp.HeaderPragmaNoCache, header.GetHeader().GetValue())
-		}
-	}
-}
-
-// idpServer is a mock IDP server that can be used to test the OIDC handler.
-// It listens on a bufconn.Listener and provides a http.Client that can be used to make requests to it.
-// It returns a predefined response when the /token endpoint is called, that can be set using the tokensResponse field.
-type idpServer struct {
-	server         *http.Server
-	listener       *bufconn.Listener
-	tokensResponse *tokensResponse
-	statusCode     int
-}
-
-func newServer() *idpServer {
-	s := &http.Server{}
-	idpServer := &idpServer{server: s, listener: bufconn.Listen(1024)}
-
-	handler := http.NewServeMux()
-	handler.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(idpServer.statusCode)
-
-		if idpServer.statusCode == http.StatusOK && idpServer.tokensResponse != nil {
-			err := json.NewEncoder(w).Encode(idpServer.tokensResponse)
-			if err != nil {
-				http.Error(w, fmt.Errorf("cannot json encode id_token: %w", err).Error(), http.StatusInternalServerError)
-			}
-		}
-	})
-	s.Handler = handler
-	return idpServer
-}
-
-func (s *idpServer) Start() {
-	go func() { _ = s.server.Serve(s.listener) }()
-}
-
-func (s *idpServer) Stop() {
-	_ = s.listener.Close()
-}
-
-func (s *idpServer) newHTTPClient() *http.Client {
-	return &http.Client{
-		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, _ string, _ string) (net.Conn, error) {
-				return s.listener.DialContext(ctx)
-			},
+	// The following subset of tests is testing the callback requests, so there's expected communication with the IDP server.
+	// The store is expected to fail in some way, so the handler should return an error response.
+	callbackTests := []struct {
+		name              string
+		storeCallsToError map[int]bool
+	}{
+		{
+			name:              "callback request - fails to get authorization state",
+			storeCallsToError: map[int]bool{getAuthorizationState: true},
 		},
+		{
+			name:              "callback request - fails to clear old authorization state",
+			storeCallsToError: map[int]bool{clearAuthorizationState: true},
+		},
+		{
+			name:              "callback request - fails to set new token response",
+			storeCallsToError: map[int]bool{setTokenResponse: true},
+		},
+	}
+
+	for _, tt := range callbackTests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.NoError(t, store.SetAuthorizationState(ctx, sessionID, validAuthState))
+
+			store.errs = tt.storeCallsToError
+			t.Cleanup(func() { store.errs = nil })
+
+			resp := &envoy.CheckResponse{}
+			require.NoError(t, h.Process(ctx, callbackRequest, resp))
+			requireSessionErrorResponse(t, resp)
+		})
+
 	}
 }
 
@@ -661,7 +580,7 @@ func TestMatchesCallbackPath(t *testing.T) {
 		{"http://example.com:8080/callback", "example.com:8080", "/callback", true},
 	}
 
-	sessions := inMemSessionFactory(t)
+	sessions := &mockSessionStoreFactory{store: oidc.NewMemoryStore(&oidc.Clock{}, time.Hour, time.Hour)}
 
 	for _, tt := range tests {
 		t.Run(tt.callback, func(t *testing.T) {
@@ -744,7 +663,7 @@ func TestEncodeTokensToHeaders(t *testing.T) {
 		},
 	}
 
-	sessions := inMemSessionFactory(t)
+	sessions := &mockSessionStoreFactory{store: oidc.NewMemoryStore(&oidc.Clock{}, time.Hour, time.Hour)}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -814,7 +733,7 @@ func TestAreTokensExpired(t *testing.T) {
 		},
 	}
 
-	sessions := inMemSessionFactory(t)
+	sessions := &mockSessionStoreFactory{store: oidc.NewMemoryStore(&oidc.Clock{}, time.Hour, time.Hour)}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -836,20 +755,262 @@ func TestAreTokensExpired(t *testing.T) {
 	}
 }
 
-func inMemSessionFactory(t *testing.T) *oidc.SessionStoreFactory {
-	sessions := &oidc.SessionStoreFactory{
-		Config: &configv1.Config{
-			Chains: []*configv1.FilterChain{
-				{
-					Filters: []*configv1.Filter{
-						{
-							Type: &configv1.Filter_Oidc{Oidc: &oidcv1.OIDCConfig{}},
-						},
+func modifyCallbackRequestPath(path string) *envoy.CheckRequest {
+	return &envoy.CheckRequest{
+		Attributes: &envoy.AttributeContext{
+			Request: &envoy.AttributeContext_Request{
+				Http: &envoy.AttributeContext_HttpRequest{
+					Id:     "request-id",
+					Scheme: "https", Host: "localhost:443", Path: path,
+					Method: "GET",
+					Headers: map[string]string{
+						inthttp.HeaderCookie: defaultCookieName + "=test-session-id",
 					},
 				},
 			},
 		},
 	}
-	require.NoError(t, sessions.PreRun())
-	return sessions
+}
+
+func newJWT(t *testing.T, builder *jwt.Builder) string {
+	token, err := builder.Build()
+	require.NoError(t, err)
+	signed, err := jwt.Sign(token, jwa.HS256, []byte("key"))
+	require.NoError(t, err)
+	return string(signed)
+}
+
+func requireSessionErrorResponse(t *testing.T, resp *envoy.CheckResponse) {
+	require.Equal(t, int32(codes.Unauthenticated), resp.GetStatus().GetCode())
+	require.Equal(t, "There was an error accessing your session data. Try again later.", resp.GetDeniedResponse().GetBody())
+}
+
+func requireStoredTokens(t *testing.T, store oidc.SessionStore, sessionID string, wantExists bool) {
+	got, err := store.GetTokenResponse(context.Background(), sessionID)
+	require.NoError(t, err)
+	if wantExists {
+		require.NotNil(t, got)
+	} else {
+		require.Nil(t, got)
+	}
+}
+
+func requireStoredState(t *testing.T, store oidc.SessionStore, sessionID string, wantExists bool) {
+	got, err := store.GetAuthorizationState(context.Background(), sessionID)
+	require.NoError(t, err)
+	if wantExists {
+		require.NotNil(t, got)
+	} else {
+		require.Nil(t, got)
+	}
+}
+
+func requireRedirectResponse(t *testing.T, response *envoy.DeniedHttpResponse, wantRedirectBaseURI string, wantRedirectParams url.Values) {
+	var locationHeader string
+	for _, header := range response.GetHeaders() {
+		if header.GetHeader().GetKey() == inthttp.HeaderLocation {
+			locationHeader = header.GetHeader().GetValue()
+		}
+	}
+
+	require.Equal(t, typev3.StatusCode_Found, response.GetStatus().GetCode())
+	got, err := url.Parse(locationHeader)
+	require.NoError(t, err)
+
+	require.Equal(t, wantRedirectBaseURI, got.Scheme+"://"+got.Host+got.Path)
+
+	gotParams := got.Query()
+	for k, v := range wantRedirectParams {
+		require.Equal(t, v, gotParams[k])
+	}
+	require.Len(t, gotParams, len(wantRedirectParams))
+}
+
+func requireCookie(t *testing.T, response *envoy.DeniedHttpResponse) {
+	var cookieHeader string
+	for _, header := range response.GetHeaders() {
+		if header.GetHeader().GetKey() == inthttp.HeaderSetCookie {
+			cookieHeader = header.GetHeader().GetValue()
+		}
+	}
+	require.Equal(t, "__Host-authservice-session-id-cookie=new-session-id; HttpOnly; Secure; SameSite=Lax; Path=/", cookieHeader)
+}
+
+func requireTokensInResponse(t *testing.T, resp *envoy.OkHttpResponse, cfg *oidcv1.OIDCConfig, idToken, accessToken string) {
+	var (
+		gotIDToken, gotAccessToken   string
+		wantIDToken, wantAccessToken string
+	)
+
+	wantIDToken = cfg.GetIdToken().GetPreamble() + " " + base64.URLEncoding.EncodeToString([]byte(idToken))
+	if cfg.GetAccessToken() != nil {
+		wantAccessToken = cfg.GetAccessToken().GetPreamble() + " " + base64.URLEncoding.EncodeToString([]byte(accessToken))
+	}
+
+	for _, header := range resp.GetHeaders() {
+		if header.GetHeader().GetKey() == cfg.GetIdToken().GetHeader() {
+			gotIDToken = header.GetHeader().GetValue()
+		}
+		if header.GetHeader().GetKey() == cfg.GetAccessToken().GetHeader() {
+			gotAccessToken = header.GetHeader().GetValue()
+		}
+	}
+
+	require.Equal(t, wantIDToken, gotIDToken)
+	if cfg.GetAccessToken() != nil {
+		require.Equal(t, wantAccessToken, gotAccessToken)
+	} else {
+		require.Empty(t, gotAccessToken)
+	}
+}
+
+func requireStandardResponseHeaders(t *testing.T, resp *envoy.CheckResponse) {
+	for _, header := range resp.GetDeniedResponse().GetHeaders() {
+		if header.GetHeader().GetKey() == inthttp.HeaderCacheControl {
+			require.EqualValues(t, inthttp.HeaderCacheControlNoCache, header.GetHeader().GetValue())
+		}
+		if header.GetHeader().GetKey() == inthttp.HeaderPragma {
+			require.EqualValues(t, inthttp.HeaderPragmaNoCache, header.GetHeader().GetValue())
+		}
+	}
+}
+
+// idpServer is a mock IDP server that can be used to test the OIDC handler.
+// It listens on a bufconn.Listener and provides a http.Client that can be used to make requests to it.
+// It returns a predefined response when the /token endpoint is called, that can be set using the tokensResponse field.
+type idpServer struct {
+	server         *http.Server
+	listener       *bufconn.Listener
+	tokensResponse *tokensResponse
+	statusCode     int
+}
+
+func newServer() *idpServer {
+	s := &http.Server{}
+	idpServer := &idpServer{server: s, listener: bufconn.Listen(1024)}
+
+	handler := http.NewServeMux()
+	handler.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(idpServer.statusCode)
+
+		if idpServer.statusCode == http.StatusOK && idpServer.tokensResponse != nil {
+			err := json.NewEncoder(w).Encode(idpServer.tokensResponse)
+			if err != nil {
+				http.Error(w, fmt.Errorf("cannot json encode id_token: %w", err).Error(), http.StatusInternalServerError)
+			}
+		}
+	})
+	s.Handler = handler
+	return idpServer
+}
+
+// Start starts the server in a goroutine.
+func (s *idpServer) Start() {
+	go func() { _ = s.server.Serve(s.listener) }()
+}
+
+// Stop stops the server.
+func (s *idpServer) Stop() {
+	_ = s.listener.Close()
+}
+
+// newHTTPClient returns a new http.Client that can be used to make requests to the server via the bufconn.Listener.
+func (s *idpServer) newHTTPClient() *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, _ string, _ string) (net.Conn, error) {
+				return s.listener.DialContext(ctx)
+			},
+		},
+	}
+}
+
+const (
+	setTokenResponse = iota
+	getTokenResponse
+	setAuthorizationState
+	getAuthorizationState
+	clearAuthorizationState
+	removeSession
+	removeAllExpired
+)
+
+var (
+	_ oidc.SessionStore = &storeMock{}
+
+	errStore = errors.New("store error")
+)
+
+// storeMock is a mock implementation of oidc.SessionStore that allows to configure when a method must fail with an error.
+type storeMock struct {
+	delegate oidc.SessionStore
+	errs     map[int]bool
+}
+
+// SetTokenResponse Implements oidc.SessionStore.
+func (s *storeMock) SetTokenResponse(ctx context.Context, sessionID string, tokenResponse *oidc.TokenResponse) error {
+	if s.errs[setTokenResponse] {
+		return errStore
+	}
+	return s.delegate.SetTokenResponse(ctx, sessionID, tokenResponse)
+}
+
+// GetTokenResponse Implements oidc.SessionStore.
+func (s *storeMock) GetTokenResponse(ctx context.Context, sessionID string) (*oidc.TokenResponse, error) {
+	if s.errs[getTokenResponse] {
+		return nil, errStore
+	}
+	return s.delegate.GetTokenResponse(ctx, sessionID)
+}
+
+// SetAuthorizationState Implements oidc.SessionStore.
+func (s *storeMock) SetAuthorizationState(ctx context.Context, sessionID string, authorizationState *oidc.AuthorizationState) error {
+	if s.errs[setAuthorizationState] {
+		return errStore
+	}
+	return s.delegate.SetAuthorizationState(ctx, sessionID, authorizationState)
+}
+
+// GetAuthorizationState Implements oidc.SessionStore.
+func (s *storeMock) GetAuthorizationState(ctx context.Context, sessionID string) (*oidc.AuthorizationState, error) {
+	if s.errs[getAuthorizationState] {
+		return nil, errStore
+	}
+	return s.delegate.GetAuthorizationState(ctx, sessionID)
+}
+
+// ClearAuthorizationState Implements oidc.SessionStore.
+func (s *storeMock) ClearAuthorizationState(ctx context.Context, sessionID string) error {
+	if s.errs[clearAuthorizationState] {
+		return errStore
+	}
+	return s.delegate.ClearAuthorizationState(ctx, sessionID)
+}
+
+// RemoveSession Implements oidc.SessionStore.
+func (s *storeMock) RemoveSession(ctx context.Context, sessionID string) error {
+	if s.errs[removeSession] {
+		return errStore
+	}
+	return s.delegate.RemoveSession(ctx, sessionID)
+}
+
+// RemoveAllExpired Implements oidc.SessionStore.
+func (s *storeMock) RemoveAllExpired(ctx context.Context) error {
+	if s.errs[removeAllExpired] {
+		return errStore
+	}
+	return s.delegate.RemoveAllExpired(ctx)
+}
+
+var _ oidc.SessionStoreFactory = &mockSessionStoreFactory{}
+
+// mockSessionStoreFactory is a mock implementation of oidc.SessionStoreFactory that returns a predefined store.
+type mockSessionStoreFactory struct {
+	store oidc.SessionStore
+}
+
+func (m mockSessionStoreFactory) Get(_ *oidcv1.OIDCConfig) oidc.SessionStore {
+	return m.store
 }

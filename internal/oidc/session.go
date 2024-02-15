@@ -26,33 +26,57 @@ import (
 	oidcv1 "github.com/tetrateio/authservice-go/config/gen/go/v1/oidc"
 )
 
-// SessionStore is an interface for storing session data.
-type SessionStore interface {
-	SetTokenResponse(ctx context.Context, sessionID string, tokenResponse *TokenResponse) error
-	GetTokenResponse(ctx context.Context, sessionID string) (*TokenResponse, error)
-	SetAuthorizationState(ctx context.Context, sessionID string, authorizationState *AuthorizationState) error
-	GetAuthorizationState(ctx context.Context, sessionID string) (*AuthorizationState, error)
-	ClearAuthorizationState(ctx context.Context, sessionID string) error
-	RemoveSession(ctx context.Context, sessionID string) error
-	RemoveAllExpired(ctx context.Context) error
-}
+type (
+	// SessionStore is an interface for storing session data.
+	SessionStore interface {
+		SetTokenResponse(ctx context.Context, sessionID string, tokenResponse *TokenResponse) error
+		GetTokenResponse(ctx context.Context, sessionID string) (*TokenResponse, error)
+		SetAuthorizationState(ctx context.Context, sessionID string, authorizationState *AuthorizationState) error
+		GetAuthorizationState(ctx context.Context, sessionID string) (*AuthorizationState, error)
+		ClearAuthorizationState(ctx context.Context, sessionID string) error
+		RemoveSession(ctx context.Context, sessionID string) error
+		RemoveAllExpired(ctx context.Context) error
+	}
 
-var _ run.PreRunner = (*SessionStoreFactory)(nil)
+	// SessionStoreFactory is a factory for managing multiple SessionStores.
+	// It uses the OIDC configuration to determine which store to use.
+	SessionStoreFactory interface {
+		Get(cfg *oidcv1.OIDCConfig) SessionStore
+	}
+
+	// SessionStoreFactoryUnit is a combination of a run.PreRunner and a SessionStoreFactory.
+	SessionStoreFactoryUnit interface {
+		run.PreRunner
+		SessionStoreFactory
+	}
+)
+
+var (
+	_ SessionStoreFactoryUnit = (*sessionStoreFactory)(nil)
+)
 
 // SessionStoreFactory is a factory for creating session stores.
 // It uses the OIDC configuration to determine which store to use.
-type SessionStoreFactory struct {
+type sessionStoreFactory struct {
 	Config *configv1.Config
 
 	redis  map[string]SessionStore
 	memory SessionStore
 }
 
+// NewSessionStoreFactory creates a factory for managing session stores.
+// It uses the OIDC configuration to determine which store to use.
+func NewSessionStoreFactory(cfg *configv1.Config) SessionStoreFactoryUnit {
+	return &sessionStoreFactory{
+		Config: cfg,
+	}
+}
+
 // Name implements run.Unit.
-func (s *SessionStoreFactory) Name() string { return "OIDC session store factory" }
+func (s *sessionStoreFactory) Name() string { return "OIDC session store factory" }
 
 // PreRun initializes the stores that are defined in the configuration
-func (s *SessionStoreFactory) PreRun() error {
+func (s *sessionStoreFactory) PreRun() error {
 	s.redis = make(map[string]SessionStore)
 	clock := &Clock{}
 
@@ -87,7 +111,7 @@ func (s *SessionStoreFactory) PreRun() error {
 }
 
 // Get returns the appropriate session store for the given OIDC configuration.
-func (s *SessionStoreFactory) Get(cfg *oidcv1.OIDCConfig) SessionStore {
+func (s *sessionStoreFactory) Get(cfg *oidcv1.OIDCConfig) SessionStore {
 	if cfg == nil {
 		return nil
 	}

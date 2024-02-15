@@ -54,7 +54,7 @@ type oidcHandler struct {
 	log        telemetry.Logger
 	config     *oidcv1.OIDCConfig
 	jwks       oidc.JWKSProvider
-	sessions   *oidc.SessionStoreFactory
+	sessions   oidc.SessionStoreFactory
 	sessionGen oidc.SessionGenerator
 	clock      oidc.Clock
 	httpClient *http.Client
@@ -62,13 +62,13 @@ type oidcHandler struct {
 
 // NewOIDCHandler creates a new OIDC implementation of the Handler interface.
 func NewOIDCHandler(cfg *oidcv1.OIDCConfig, jwks oidc.JWKSProvider,
-	sessions *oidc.SessionStoreFactory, clock oidc.Clock,
+	sessions oidc.SessionStoreFactory, clock oidc.Clock,
 	sessionGen oidc.SessionGenerator) (Handler, error) {
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: cfg.SkipVerifyPeerCert}
 	client := &http.Client{Transport: transport}
-	// TODO use proxy uri
+	// TODO (sergicastro) use proxy uri
 
 	return &oidcHandler{
 		log:        internal.Logger(internal.Authz).With("type", "oidc"),
@@ -105,7 +105,7 @@ func (o *oidcHandler) Process(ctx context.Context, req *envoy.CheckRequest, resp
 
 	// If the request is for the configured logout path,
 	// then logout and redirect to the configured logout redirect uri.
-	// TODO: Handle logout request
+	// TODO (sergicastro): Handle logout request
 
 	// If the request does not have a session_id cookie,
 	// then generate a session id, put it in a header, and redirect for login.
@@ -173,7 +173,7 @@ func (o *oidcHandler) Process(ctx context.Context, req *envoy.CheckRequest, resp
 	// token_response. If successful, allow the request to proceed. If
 	// unsuccessful, redirect for login.
 	log.Debug("attempting token refresh")
-	// TODO: Handle token refresh
+	// TODO (sergicastro): Handle token refresh
 	return nil
 }
 

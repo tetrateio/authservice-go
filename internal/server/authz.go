@@ -60,11 +60,11 @@ type ExtAuthZFilter struct {
 	log      telemetry.Logger
 	cfg      *configv1.Config
 	jwks     oidc.JWKSProvider
-	sessions *oidc.SessionStoreFactory
+	sessions oidc.SessionStoreFactory
 }
 
 // NewExtAuthZFilter creates a new ExtAuthZFilter.
-func NewExtAuthZFilter(cfg *configv1.Config, jwks oidc.JWKSProvider, sessions *oidc.SessionStoreFactory) *ExtAuthZFilter {
+func NewExtAuthZFilter(cfg *configv1.Config, jwks oidc.JWKSProvider, sessions oidc.SessionStoreFactory) *ExtAuthZFilter {
 	return &ExtAuthZFilter{
 		log:      internal.Logger(internal.Authz),
 		cfg:      cfg,
