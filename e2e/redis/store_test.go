@@ -43,7 +43,7 @@ func TestRedisTokenResponse(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, tr)
 
-	// Create a session and verify it's added and accessed time
+	// Create a session and verify it's added and accessed time is set
 	tr = &oidc.TokenResponse{
 		IDToken:              newToken(),
 		AccessToken:          newToken(),
@@ -60,6 +60,38 @@ func TestRedisTokenResponse(t *testing.T) {
 	require.True(t, tr.AccessTokenExpiresAt.Equal(got.AccessTokenExpiresAt))
 	got.AccessTokenExpiresAt = tr.AccessTokenExpiresAt
 	require.Equal(t, tr, got)
+
+	// Verify that the token TTL has been set
+	ttl := client.TTL(ctx, "s1").Val()
+	require.Greater(t, ttl, time.Duration(0))
+}
+
+func TestRedisAuthorizationState(t *testing.T) {
+	opts, err := redis.ParseURL(redisURL)
+	require.NoError(t, err)
+	client := redis.NewClient(opts)
+
+	store, err := oidc.NewRedisStore(&oidc.Clock{}, client, 0, 1*time.Minute)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	as, err := store.GetAuthorizationState(ctx, "s1")
+	require.NoError(t, err)
+	require.Nil(t, as)
+
+	// Create a session and verify it's added and accessed time is set
+	as = &oidc.AuthorizationState{
+		State:        "state",
+		Nonce:        "nonce",
+		RequestedURL: "https://example.com",
+	}
+	require.NoError(t, store.SetAuthorizationState(ctx, "s1", as))
+
+	// Verify that the right state is returned
+	got, err := store.GetAuthorizationState(ctx, "s1")
+	require.NoError(t, err)
+	require.Equal(t, as, got)
 
 	// Verify that the token TTL has been set
 	ttl := client.TTL(ctx, "s1").Val()
