@@ -98,6 +98,43 @@ func TestRedisAuthorizationState(t *testing.T) {
 	require.Greater(t, ttl, time.Duration(0))
 }
 
+func TestSessionExpiration(t *testing.T) {
+	opts, err := redis.ParseURL(redisURL)
+	require.NoError(t, err)
+	client := redis.NewClient(opts)
+
+	store, err := oidc.NewRedisStore(&oidc.Clock{}, client, 2*time.Second, 0)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	t.Run("expire-token", func(t *testing.T) {
+		tr := &oidc.TokenResponse{
+			IDToken:              newToken(),
+			AccessToken:          newToken(),
+			AccessTokenExpiresAt: time.Now().Add(30 * time.Minute),
+		}
+		require.NoError(t, store.SetTokenResponse(ctx, "s1", tr))
+		require.Eventually(t, func() bool {
+			got, err := store.GetTokenResponse(ctx, "s1")
+			return got == nil && err == nil
+		}, 3*time.Second, 1*time.Second)
+	})
+
+	t.Run("expire-state", func(t *testing.T) {
+		as := &oidc.AuthorizationState{
+			State:        "state",
+			Nonce:        "nonce",
+			RequestedURL: "https://example.com",
+		}
+		require.NoError(t, store.SetAuthorizationState(ctx, "s1", as))
+		require.Eventually(t, func() bool {
+			got, err := store.GetAuthorizationState(ctx, "s1")
+			return got == nil && err == nil
+		}, 3*time.Second, 1*time.Second)
+	})
+}
+
 func newToken() string {
 	token, _ := jwt.NewBuilder().
 		Issuer("authservice").
