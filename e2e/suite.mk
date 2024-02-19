@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # Force run of the e2e tests
-E2E_TEST_OPTS ?= -count=1
+E2E_TEST_OPTS ?= -v -count=1
 
 export ARCH := $(shell uname -m)
 ifeq ($(ARCH),x86_64)
@@ -26,15 +26,15 @@ e2e: e2e-pre
 
 .PHONY: e2e-test
 e2e-test:
-	@go test $(E2E_TEST_OPTS) ./... || ( $(MAKE) e2e-post-error; exit 1 )
+	go test $(E2E_TEST_OPTS) ./... || ( $(MAKE) e2e-post-error; exit 1 )
 
 .PHONY: e2e-pre
-e2e-pre:
+e2e-pre::
 	@docker compose up --detach --wait --force-recreate --remove-orphans || ($(MAKE) e2e-post-error; exit 1)
 
 .PHONY: e2e-post
-e2e-post:
-	@docker compose down
+e2e-post::
+	@docker compose down --remove-orphans
 
 .PHONY: e2e-post-error
 e2e-post-error: capture-logs
@@ -45,5 +45,5 @@ capture-logs:
 	@docker compose logs > logs/docker-compose-logs.log
 
 .PHONY: clean
-clean:
+clean::
 	@rm -rf ./logs

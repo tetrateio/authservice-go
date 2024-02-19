@@ -78,4 +78,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      # Configure the Docker hostname to be able to access the host from the containers
+      - name: Add hosts to /etc/hosts
+        run: sudo echo "127.0.0.1 host.docker.internal" | sudo tee -a /etc/hosts
       - run: make docker e2e
