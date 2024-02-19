@@ -34,6 +34,9 @@ e2e-pre::
 
 .PHONY: e2e-post
 e2e-post::
+ifeq ($(E2E_PRESERVE_LOGS),true)
+	@$(MAKE) capture-logs
+endif
 	@docker compose down --remove-orphans
 
 .PHONY: e2e-post-error
