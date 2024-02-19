@@ -54,7 +54,8 @@ func skipIfDockerHostNonResolvable(t *testing.T) {
 	_, err := net.ResolveIPAddr("ip", dockerLocalHost)
 	if err != nil {
 		t.Fatalf("skipping test: %[1]q is not resolvable\n"+
-			"Please configure your environment so that %[1]q resolves to the address of the Docker host machine",
+			"Please configure your environment so that %[1]q resolves to the address of the Docker host machine.\n"+
+			"For example: echo \"127.0.0.1 %[1]s\" >>/etc/hosts",
 			dockerLocalHost)
 	}
 }
