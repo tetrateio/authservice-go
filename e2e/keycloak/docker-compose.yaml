@@ -15,6 +15,9 @@
 version: "3.9"
 
 services:
+  # This is the main backend service. It returns a fixed HTTP 200 response.
+  # It is configured to serve on port 443, and to use the ext-authz filter
+  # to intercept all requests.
   envoy:
     depends_on:
       ext-authz:
@@ -32,6 +35,7 @@ services:
         source: certs
         target: /etc/envoy/certs
 
+  # This is the `authservice` image that should be up-to-date when running the tests.
   ext-authz:
     depends_on:
       setup-keycloak:
@@ -45,10 +49,13 @@ services:
     extra_hosts:  # Required when running on Linux
       - "host.docker.internal:host-gateway"
 
+  # Redis container to be used to persist the session information and OIDC authorization
+  # state.
   redis:
     image: redis:7.2.4
     platform: linux/${ARCH:-amd64}
 
+  # Keycloak container to be used as the OIDC provider. The tests will use the `master` realm
   keycloak:
     image: quay.io/keycloak/keycloak:23.0.6
     platform: linux/${ARCH:-amd64}
@@ -71,6 +78,7 @@ services:
     extra_hosts: # Required when running on Linux
       - "host.docker.internal:host-gateway"
 
+  # Container to configure the Keycloak instance with a User and Client application
   setup-keycloak:
     depends_on:
       keycloak:
