@@ -69,6 +69,8 @@ jobs:
   e2e:
     needs: check
     runs-on: ubuntu-latest
+    env:
+      E2E_TEST_OPTS: -v -count=1
     steps:
       - uses: docker/setup-qemu-action@v3
         with:
