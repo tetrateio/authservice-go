@@ -25,6 +25,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sync"
 	"testing"
 	"time"
 
@@ -34,11 +35,14 @@ import (
 	"github.com/lestrrat-go/jwx/jwk"
 	"github.com/lestrrat-go/jwx/jwt"
 	"github.com/stretchr/testify/require"
+	"github.com/tetratelabs/run"
 	"github.com/tetratelabs/telemetry"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/test/bufconn"
 
+	configv1 "github.com/tetrateio/authservice-go/config/gen/go/v1"
 	oidcv1 "github.com/tetrateio/authservice-go/config/gen/go/v1/oidc"
+	"github.com/tetrateio/authservice-go/internal"
 	inthttp "github.com/tetrateio/authservice-go/internal/http"
 	"github.com/tetrateio/authservice-go/internal/oidc"
 )
@@ -144,6 +148,8 @@ var (
 )
 
 func TestOIDCProcess(t *testing.T) {
+	require.NoError(t, internal.NewLogSystem(&testLogger{level: telemetry.LevelDebug}, &configv1.Config{LogLevel: "debug"}).(run.PreRunner).PreRun())
+
 	wantRedirectParams := url.Values{}
 	wantRedirectParams.Add("response_type", "code")
 	wantRedirectParams.Add("client_id", "test-client-id")
@@ -166,6 +172,7 @@ func TestOIDCProcess(t *testing.T) {
 	store := sessions.Get(basicOIDCConfig)
 	h, err := NewOIDCHandler(basicOIDCConfig, oidc.NewJWKSProvider(), sessions, clock, oidc.NewStaticGenerator(newSessionID, newNonce, newState))
 	require.NoError(t, err)
+	log := h.(*oidcHandler).log.(*testLogger)
 
 	ctx := context.Background()
 
@@ -183,6 +190,7 @@ func TestOIDCProcess(t *testing.T) {
 			responseVerify: func(t *testing.T, resp *envoy.CheckResponse) {
 				require.Equal(t, int32(codes.InvalidArgument), resp.GetStatus().GetCode())
 				requireStandardResponseHeaders(t, resp)
+				log.requireLog(t, "missing http in the request")
 			},
 		},
 		{
@@ -195,6 +203,8 @@ func TestOIDCProcess(t *testing.T) {
 				requireCookie(t, resp.GetDeniedResponse())
 				// A new authorization state should have been set in the store
 				requireStoredState(t, store, newSessionID, true)
+				log.requireLog(t, "session id cookie is missing", "cookie-name", defaultCookieName)
+				log.requireLog(t, "No session cookie detected. Generating new session and sending user to re-authenticate.")
 			},
 		},
 		{
@@ -209,6 +219,7 @@ func TestOIDCProcess(t *testing.T) {
 				requireStoredState(t, store, newSessionID, true)
 				// The old one should have been removed
 				requireStoredState(t, store, sessionID, false)
+				log.requireLog(t, "Required tokens are not present. Sending user to re-authenticate.")
 			},
 		},
 		{
@@ -228,6 +239,7 @@ func TestOIDCProcess(t *testing.T) {
 				requireStoredState(t, store, newSessionID, true)
 				// The old one should have been removed
 				requireStoredState(t, store, sessionID, false)
+				log.requireLog(t, "A token was expired, but session did not contain a refresh token. Sending user to re-authenticate.")
 			},
 		},
 		{
@@ -246,6 +258,7 @@ func TestOIDCProcess(t *testing.T) {
 				requireStoredTokens(t, store, sessionID, true)
 				requireStoredState(t, store, newSessionID, false)
 				requireStoredTokens(t, store, newSessionID, false)
+				log.requireLog(t, "Tokens not expired. Allowing request to proceed.")
 			},
 		},
 	}
@@ -255,6 +268,7 @@ func TestOIDCProcess(t *testing.T) {
 			t.Cleanup(func() {
 				require.NoError(t, store.RemoveSession(ctx, sessionID))
 				require.NoError(t, store.RemoveSession(ctx, newSessionID))
+				log.clear()
 			})
 
 			if tt.storedTokenResponse != nil {
@@ -304,6 +318,7 @@ func TestOIDCProcess(t *testing.T) {
 				require.Equal(t, int32(codes.InvalidArgument), response.GetStatus().GetCode())
 				requireStandardResponseHeaders(t, response)
 				requireStoredTokens(t, store, sessionID, false)
+				log.requireLog(t, "form data is invalid, no query parameters found", "query", "")
 			},
 		},
 		{
@@ -313,6 +328,7 @@ func TestOIDCProcess(t *testing.T) {
 				require.Equal(t, int32(codes.InvalidArgument), response.GetStatus().GetCode())
 				requireStandardResponseHeaders(t, response)
 				requireStoredTokens(t, store, sessionID, false)
+				log.requireLog(t, "error parsing query", "query", "invalid;format")
 			},
 		},
 		{
@@ -322,6 +338,7 @@ func TestOIDCProcess(t *testing.T) {
 				require.Equal(t, int32(codes.InvalidArgument), response.GetStatus().GetCode())
 				requireStandardResponseHeaders(t, response)
 				requireStoredTokens(t, store, sessionID, false)
+				log.requireLog(t, "form data is invalid, missing state or code", "state", "", "code", "auth-code")
 			},
 		},
 		{
@@ -331,6 +348,7 @@ func TestOIDCProcess(t *testing.T) {
 				require.Equal(t, int32(codes.InvalidArgument), response.GetStatus().GetCode())
 				requireStandardResponseHeaders(t, response)
 				requireStoredTokens(t, store, sessionID, false)
+				log.requireLog(t, "form data is invalid, missing state or code", "state", "new-state", "code", "")
 			},
 		},
 		{
@@ -342,6 +360,7 @@ func TestOIDCProcess(t *testing.T) {
 				require.Equal(t, typev3.StatusCode_BadRequest, response.GetDeniedResponse().GetStatus().GetCode())
 				require.Equal(t, "Oops, your session has expired. Please try again.", response.GetDeniedResponse().GetBody())
 				requireStoredTokens(t, store, sessionID, false)
+				log.requireLog(t, "missing state, nonce, and original url requested by user in the store. Cannot redirect.")
 			},
 		},
 		{
@@ -356,6 +375,7 @@ func TestOIDCProcess(t *testing.T) {
 				require.Equal(t, int32(codes.InvalidArgument), response.GetStatus().GetCode())
 				requireStandardResponseHeaders(t, response)
 				requireStoredTokens(t, store, sessionID, false)
+				log.requireLog(t, "state from request does not match state from store", "state-from-request", newState, "state-from-store", "non-matching-state")
 			},
 		},
 		{
@@ -367,6 +387,7 @@ func TestOIDCProcess(t *testing.T) {
 				require.Equal(t, int32(codes.Unknown), response.GetStatus().GetCode())
 				requireStandardResponseHeaders(t, response)
 				requireStoredTokens(t, store, sessionID, false)
+				log.requireLog(t, "OIDC server returned non-200 status code")
 			},
 		},
 		{
@@ -378,6 +399,7 @@ func TestOIDCProcess(t *testing.T) {
 				require.Equal(t, int32(codes.Internal), response.GetStatus().GetCode())
 				requireStandardResponseHeaders(t, response)
 				requireStoredTokens(t, store, sessionID, false)
+				log.requireLog(t, "error unmarshalling tokens response")
 			},
 		},
 		{
@@ -392,6 +414,7 @@ func TestOIDCProcess(t *testing.T) {
 				require.Equal(t, int32(codes.Internal), response.GetStatus().GetCode())
 				requireStandardResponseHeaders(t, response)
 				requireStoredTokens(t, store, sessionID, false)
+				log.requireLog(t, "error parsing id token")
 			},
 		},
 		{
@@ -405,6 +428,7 @@ func TestOIDCProcess(t *testing.T) {
 				require.Equal(t, int32(codes.Internal), response.GetStatus().GetCode())
 				requireStandardResponseHeaders(t, response)
 				requireStoredTokens(t, store, sessionID, false)
+				log.requireLog(t, "error verifying id token with fetched jwks")
 			},
 		},
 		{
@@ -422,6 +446,7 @@ func TestOIDCProcess(t *testing.T) {
 				require.Equal(t, int32(codes.InvalidArgument), response.GetStatus().GetCode())
 				requireStandardResponseHeaders(t, response)
 				requireStoredTokens(t, store, sessionID, false)
+				log.requireLog(t, "id token nonce does not match", "nonce-from-store", "old-nonce", "nonce-from-id-token", "non-matching-nonce")
 			},
 		},
 		{
@@ -435,6 +460,7 @@ func TestOIDCProcess(t *testing.T) {
 				require.Equal(t, int32(codes.InvalidArgument), response.GetStatus().GetCode())
 				requireStandardResponseHeaders(t, response)
 				requireStoredTokens(t, store, sessionID, false)
+				log.requireLog(t, "id token audience does not match", "aud-from-id-token", []string(nil))
 			},
 		},
 		{
@@ -448,6 +474,7 @@ func TestOIDCProcess(t *testing.T) {
 				require.Equal(t, int32(codes.InvalidArgument), response.GetStatus().GetCode())
 				requireStandardResponseHeaders(t, response)
 				requireStoredTokens(t, store, sessionID, false)
+				log.requireLog(t, "id token audience does not match", "aud-from-id-token", []string{"non-matching-audience"})
 			},
 		},
 		{
@@ -462,6 +489,7 @@ func TestOIDCProcess(t *testing.T) {
 				require.Equal(t, int32(codes.InvalidArgument), response.GetStatus().GetCode())
 				requireStandardResponseHeaders(t, response)
 				requireStoredTokens(t, store, sessionID, false)
+				log.requireLog(t, "token type is not Bearer in token response")
 			},
 		},
 		{
@@ -477,6 +505,7 @@ func TestOIDCProcess(t *testing.T) {
 				require.Equal(t, int32(codes.InvalidArgument), response.GetStatus().GetCode())
 				requireStandardResponseHeaders(t, response)
 				requireStoredTokens(t, store, sessionID, false)
+				log.requireLog(t, "expires_in is not a positive value in token response", "expires-in", -1)
 			},
 		},
 		{
@@ -492,6 +521,7 @@ func TestOIDCProcess(t *testing.T) {
 				require.Equal(t, int32(codes.InvalidArgument), response.GetStatus().GetCode())
 				requireStandardResponseHeaders(t, response)
 				requireStoredTokens(t, store, sessionID, false)
+				log.requireLog(t, "access token forwarding is configured but no access token was returned")
 			},
 		},
 	}
@@ -502,6 +532,7 @@ func TestOIDCProcess(t *testing.T) {
 			t.Cleanup(func() {
 				idpServer.Stop()
 				require.NoError(t, store.RemoveSession(ctx, sessionID))
+				log.clear()
 			})
 
 			idpServer.tokensResponse = tt.mockTokensResponse
@@ -523,6 +554,7 @@ func TestOIDCProcess(t *testing.T) {
 }
 
 func TestOIDCProcessWithFailingSessionStore(t *testing.T) {
+	require.NoError(t, internal.NewLogSystem(&testLogger{level: telemetry.LevelDebug}, &configv1.Config{LogLevel: "debug"}).(run.PreRunner).PreRun())
 	store := &storeMock{delegate: oidc.NewMemoryStore(&oidc.Clock{}, time.Hour, time.Hour)}
 	sessions := &mockSessionStoreFactory{store: store}
 
@@ -535,6 +567,7 @@ func TestOIDCProcessWithFailingSessionStore(t *testing.T) {
 
 	h, err := NewOIDCHandler(basicOIDCConfig, oidc.NewJWKSProvider(), sessions, oidc.Clock{}, oidc.NewStaticGenerator(newSessionID, newNonce, newState))
 	require.NoError(t, err)
+	log := h.(*oidcHandler).log.(*testLogger)
 
 	ctx := context.Background()
 
@@ -543,28 +576,49 @@ func TestOIDCProcessWithFailingSessionStore(t *testing.T) {
 	requestToAppTests := []struct {
 		name        string
 		storeErrors map[int]bool
+		wantLogs    [][]interface{}
 	}{
 		{
 			name:        "app request - fails to get token response from given session ID",
 			storeErrors: map[int]bool{getTokenResponse: true},
+			wantLogs: [][]interface{}{
+				{"attempting session retrieval", "session-id", sessionID},
+				{"error retrieving tokens from session store", "session-id", sessionID},
+			},
 		},
 		{
 			name:        "app request (redirect to IDP) - fails to remove old session",
 			storeErrors: map[int]bool{removeSession: true},
+			wantLogs: [][]interface{}{
+				{"attempting session retrieval", "session-id", sessionID},
+				{"Required tokens are not present. Sending user to re-authenticate.", "session-id", sessionID},
+				{"error removing old session", "session-id", sessionID},
+			},
 		},
 		{
 			name:        "app request (redirect to IDP) - fails to set new authorization state",
 			storeErrors: map[int]bool{setAuthorizationState: true},
+			wantLogs: [][]interface{}{
+				{"attempting session retrieval", "session-id", sessionID},
+				{"Required tokens are not present. Sending user to re-authenticate.", "session-id", sessionID},
+				{"error storing the new authorization state", "session-id", sessionID},
+			},
 		},
 	}
 
 	for _, tt := range requestToAppTests {
 		t.Run(tt.name, func(t *testing.T) {
 			store.errs = tt.storeErrors
-			t.Cleanup(func() { store.errs = nil })
+			t.Cleanup(func() {
+				store.errs = nil
+				log.clear()
+			})
 			resp := &envoy.CheckResponse{}
 			require.NoError(t, h.Process(ctx, withSessionHeader, resp))
 			requireSessionErrorResponse(t, resp)
+			for _, wantLog := range tt.wantLogs {
+				log.requireLog(t, wantLog[0].(string), wantLog[1:]...)
+			}
 		})
 	}
 
@@ -584,18 +638,32 @@ func TestOIDCProcessWithFailingSessionStore(t *testing.T) {
 	callbackTests := []struct {
 		name              string
 		storeCallsToError map[int]bool
+		wantLogs          [][]interface{}
 	}{
 		{
 			name:              "callback request - fails to get authorization state",
 			storeCallsToError: map[int]bool{getAuthorizationState: true},
+			wantLogs: [][]interface{}{
+				{"handling callback request"},
+				{"error retrieving authorization state from session store", "session-id", sessionID},
+			},
 		},
 		{
 			name:              "callback request - fails to clear old authorization state",
 			storeCallsToError: map[int]bool{clearAuthorizationState: true},
+			wantLogs: [][]interface{}{
+				{"handling callback request"},
+				{"error clearing authorization state", "session-id", sessionID},
+			},
 		},
 		{
 			name:              "callback request - fails to set new token response",
 			storeCallsToError: map[int]bool{setTokenResponse: true},
+			wantLogs: [][]interface{}{
+				{"handling callback request"},
+				{"saving tokens to session store", "session-id", sessionID},
+				{"error saving tokens to session store", "session-id", sessionID},
+			},
 		},
 	}
 
@@ -604,17 +672,24 @@ func TestOIDCProcessWithFailingSessionStore(t *testing.T) {
 			require.NoError(t, store.SetAuthorizationState(ctx, sessionID, validAuthState))
 
 			store.errs = tt.storeCallsToError
-			t.Cleanup(func() { store.errs = nil })
+			t.Cleanup(func() {
+				store.errs = nil
+				log.clear()
+			})
 
 			resp := &envoy.CheckResponse{}
 			require.NoError(t, h.Process(ctx, callbackRequest, resp))
 			requireSessionErrorResponse(t, resp)
+			for _, wantLog := range tt.wantLogs {
+				log.requireLog(t, wantLog[0].(string), wantLog[1:]...)
+			}
 		})
 
 	}
 }
 
 func TestOIDCProcessWithFailingJWKSProvider(t *testing.T) {
+	require.NoError(t, internal.NewLogSystem(&testLogger{level: telemetry.LevelDebug}, &configv1.Config{LogLevel: "debug"}).(run.PreRunner).PreRun())
 	funcJWKSProvider := jwksProviderFunc(func() (jwk.Set, error) {
 		return nil, errors.New("test jwks provider error")
 	})
@@ -626,6 +701,7 @@ func TestOIDCProcessWithFailingJWKSProvider(t *testing.T) {
 	store := sessions.Get(basicOIDCConfig)
 	h, err := NewOIDCHandler(basicOIDCConfig, funcJWKSProvider, sessions, clock, oidc.NewStaticGenerator(newSessionID, newNonce, newState))
 	require.NoError(t, err)
+	log := h.(*oidcHandler).log.(*testLogger)
 
 	idpServer := newServer()
 	h.(*oidcHandler).httpClient = idpServer.newHTTPClient()
@@ -636,6 +712,7 @@ func TestOIDCProcessWithFailingJWKSProvider(t *testing.T) {
 	t.Cleanup(func() {
 		idpServer.Stop()
 		require.NoError(t, store.RemoveSession(ctx, sessionID))
+		log.clear()
 	})
 
 	idpServer.tokensResponse = &tokensResponse{
@@ -655,6 +732,8 @@ func TestOIDCProcessWithFailingJWKSProvider(t *testing.T) {
 	require.Equal(t, int32(codes.Internal), resp.GetStatus().GetCode())
 	requireStandardResponseHeaders(t, resp)
 	requireStoredTokens(t, store, sessionID, false)
+	log.requireLog(t, "handling callback request")
+	log.requireLog(t, "error fetching jwks", "error", errors.New("test jwks provider error"))
 }
 
 func TestMatchesCallbackPath(t *testing.T) {
@@ -1217,4 +1296,177 @@ type jwksProviderFunc func() (jwk.Set, error)
 
 func (j jwksProviderFunc) Get(context.Context, *oidcv1.OIDCConfig) (jwk.Set, error) {
 	return j()
+}
+
+var _ telemetry.Logger = &testLogger{}
+
+// testLogger is a mock implementation of telemetry.Logger that saves the messages logged and the key-value pairs.
+// Initializing any log system with a new instances of this is enough to test the logs.
+// It is strongly recommended to call the clear method in each test cleanup to ensure the expected logs are
+// produced in the current iteration.
+type testLogger struct {
+	level telemetry.Level
+
+	// messages hold the messages logged, indexed by the msg field and saving the key-value pairs.
+	messages map[string]map[string]interface{}
+	m        sync.Mutex
+
+	// loggers holds the loggers created by the Clone, With and Context methods.
+	loggers []*testLogger
+
+	// extraKVPairs holds the key-value pairs that are added to the loggers created by the With and Context methods.
+	extraKVPairs []interface{}
+}
+
+// message saves the message and the key-value pairs in the messages field.
+func (t *testLogger) message(msg string, keyValuePairs ...interface{}) {
+	t.m.Lock()
+	defer t.m.Unlock()
+	if t.messages == nil {
+		t.messages = make(map[string]map[string]interface{})
+	}
+	if _, ok := t.messages[msg]; !ok {
+		t.messages[msg] = make(map[string]interface{})
+	}
+	kvPairs := append(keyValuePairs, t.extraKVPairs...)
+	for i := 0; i < len(kvPairs); i += 2 {
+		t.messages[msg][kvPairs[i].(string)] = kvPairs[i+1]
+	}
+}
+
+// Debug Implements telemetry.Logger.
+func (t *testLogger) Debug(msg string, keyValuePairs ...interface{}) {
+	if t.level < telemetry.LevelDebug {
+		return
+	}
+	kv := append(keyValuePairs, "level", "debug")
+	t.message(msg, kv...)
+}
+
+// Info Implements telemetry.Logger.
+func (t *testLogger) Info(msg string, keyValuePairs ...interface{}) {
+	if t.level < telemetry.LevelInfo {
+		return
+	}
+	kv := append(keyValuePairs, "level", "info")
+	t.message(msg, kv...)
+}
+
+// Error Implements telemetry.Logger.
+func (t *testLogger) Error(msg string, err error, keyValuePairs ...interface{}) {
+	if t.level < telemetry.LevelError {
+		return
+	}
+	kv := append(keyValuePairs, "level", "error", "error", err)
+	t.message(msg, kv...)
+}
+
+// SetLevel Implements telemetry.Logger.
+func (t *testLogger) SetLevel(lvl telemetry.Level) {
+	t.m.Lock()
+	defer t.m.Unlock()
+	t.level = lvl
+}
+
+// Level Implements telemetry.Logger.
+func (t *testLogger) Level() telemetry.Level {
+	t.m.Lock()
+	defer t.m.Unlock()
+	return t.level
+}
+
+// With Implements telemetry.Logger.
+// generates a new instance inheriting the key-value pairs and save this new instance to the parent one.
+func (t *testLogger) With(keyValuePairs ...interface{}) telemetry.Logger {
+	t.m.Lock()
+	defer t.m.Unlock()
+	n := &testLogger{
+		level:        t.level,
+		extraKVPairs: append(t.extraKVPairs, keyValuePairs...),
+	}
+	t.loggers = append(t.loggers, n)
+	return n
+}
+
+// Context Implements telemetry.Logger.
+// generates a new instance inheriting the key-value pairs  and save this new instance to the parent one.
+func (t *testLogger) Context(ctx context.Context) telemetry.Logger {
+	t.m.Lock()
+	defer t.m.Unlock()
+	n := &testLogger{
+		level:        t.level,
+		extraKVPairs: append(t.extraKVPairs, telemetry.KeyValuesFromContext(ctx)...),
+	}
+	t.loggers = append(t.loggers, n)
+	return n
+}
+
+// Metric Implements telemetry.Logger.
+// not implemented & not used.
+func (t *testLogger) Metric(telemetry.Metric) telemetry.Logger {
+	panic("implement me")
+}
+
+// Clone Implements telemetry.Logger.
+// generates a new instance inheriting the key-value pairs and save this new instance to the parent one.
+func (t *testLogger) Clone() telemetry.Logger {
+	t.m.Lock()
+	defer t.m.Unlock()
+
+	n := &testLogger{
+		level:        t.level,
+		extraKVPairs: append(make([]interface{}, 0, len(t.extraKVPairs)), t.extraKVPairs...),
+	}
+	t.loggers = append(t.loggers, n)
+	return n
+}
+
+// getAllLoggers recursively gets all the children loggers.
+func (t *testLogger) getAllLoggers() []*testLogger {
+	t.m.Lock()
+	defer t.m.Unlock()
+
+	loggers := make([]*testLogger, 0)
+	for _, l := range t.loggers {
+		loggers = append(loggers, l)
+		loggers = append(loggers, l.getAllLoggers()...)
+	}
+	return loggers
+}
+
+// requireLog checks if the message and the key-value pairs are present in the loggers.
+func (t *testLogger) requireLog(tt *testing.T, msg string, keyValuePairs ...interface{}) {
+	tt.Helper()
+	loggers := t.getAllLoggers()
+
+	t.m.Lock()
+	defer t.m.Unlock()
+
+	var (
+		gotKVPairs map[string]interface{}
+		ok         bool
+	)
+
+	for _, l := range loggers {
+		if gotKVPairs, ok = l.messages[msg]; ok {
+			break
+		}
+	}
+	require.True(tt, ok, "message not found: %s", msg)
+
+	for i := 0; i < len(keyValuePairs); i += 2 {
+		expKey := keyValuePairs[i].(string)
+		expValue := keyValuePairs[i+1]
+		gotValue, ok := gotKVPairs[expKey]
+		require.True(tt, ok, "key not found: %s", expKey)
+		require.Equal(tt, expValue, gotValue)
+	}
+}
+
+// clear clears the messages and the loggers.
+func (t *testLogger) clear() {
+	t.m.Lock()
+	defer t.m.Unlock()
+
+	t.loggers = nil
 }
