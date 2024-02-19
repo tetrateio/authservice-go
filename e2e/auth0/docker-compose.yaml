@@ -1,0 +1,63 @@
+# Copyright 2024 Tetrate
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+version: "3.9"
+
+services:
+
+  # envoy is the main proxy that will be used to forward traffic to the external authorization server
+  envoy:
+    image: envoyproxy/envoy:v1.29-latest
+    platform: linux/arm64
+    command: -c /etc/envoy/envoy-config.yaml --log-level warning
+    ports:
+      - "8443:443"  # Make it accessible from the host (HTTPS traffic)
+    volumes:
+      - type: bind
+        source: build/config/envoy-config.yaml
+        target: /etc/envoy/envoy-config.yaml
+      - type: bind
+        source: build/certs
+        target: /etc/envoy/certs
+
+  # idp-proxy is a proxy that will be used to forward traffic to the external authorization server
+  # Set the OIDC config `proxy_url` to `http://idp-proxy:9000` in the `authservice` config to use this proxy.
+  idp-proxy:
+    image: envoyproxy/envoy:v1.29-latest
+    platform: linux/arm64
+    command: -c /etc/envoy/envoy-config.yaml --log-level warning --component-log-level http:debug
+    ports:
+      - "9000:9000" # Expose the proxy to auth0
+    volumes:
+      - type: bind
+        source: build/config/envoy-auth0-config.yaml
+        target: /etc/envoy/envoy-config.yaml
+
+  # authservice is the external authorization server
+  ext-authz:
+    image: gcr.io/tetrate-internal-containers/authservice:latest-${ARCH:-amd64}
+    platform: linux/${ARCH:-amd64}
+    ports:
+      - "10004:10004"  # health check
+    volumes:
+      - type: bind
+        source: build/config/authz-config.json
+        target: /etc/authservice/config.json
+    depends_on:
+      - redis
+
+  # redis session store
+  redis:
+    image: redis:7.2.4
+    platform: linux/${ARCH:-amd64}

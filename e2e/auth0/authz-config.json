@@ -1,0 +1,44 @@
+{
+  "listen_address": "0.0.0.0",
+  "listen_port": "10003",
+  "log_level": "trace",
+  "threads": 8,
+  "chains": [
+    {
+      "name": "idp_filter_chain",
+      "filters": [
+        {
+          "oidc":
+          {
+            "authorization_uri": "https://${AUTH0_HOST}/authorize",
+            "token_uri": "https://${AUTH0_HOST}/oauth/token",
+            "callback_uri": "https://localhost:8443/oauth/callback",
+            "proxy_uri": "http://idp-proxy:9000",
+            "jwks_fetcher": {
+              "jwks_uri": "https://${AUTH0_HOST}/.well-known/jwks.json",
+              "periodic_fetch_interval_sec": 60,
+              "skip_verify_peer_cert": true
+            },
+            "skip_verify_peer_cert": true,
+            "client_id": "${OIDC_CLIENT_ID}",
+            "client_secret": "${OIDC_CLIENT_SECRET}",
+            "scopes": ["openid", "profile", "email"],
+            "cookie_name_prefix": "authservice",
+            "id_token": {
+              "preamble": "Bearer",
+              "header": "Authorization"
+            },
+            "logout": {
+              "path": "/logout",
+              "redirect_uri": "https://${AUTH0_HOST}/v2/logout?client_id=${OIDC_CLIENT_ID}&returnTo=https://localhost:8443"
+            },
+            "redis_session_store_config": {
+              "server_uri": "redis://redis:6379"
+            },
+            "idle_session_timeout": 60
+          }
+        }
+      ]
+    }
+  ]
+}
