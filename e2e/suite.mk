@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # Force run of the e2e tests
-E2E_TEST_OPTS ?= -v -count=1
+E2E_TEST_OPTS ?= -count=1
 
 export ARCH := $(shell uname -m)
 ifeq ($(ARCH),x86_64)

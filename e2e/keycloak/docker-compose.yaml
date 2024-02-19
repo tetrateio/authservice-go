@@ -87,5 +87,5 @@ services:
       test: /opt/keycloak/bin/kcreg.sh get authservice --server http://keycloak:8080 --realm master --user admin --password admin
       interval: 2s
       timeout: 2s
-      retries: 1
+      retries: 10
       start_period: 2s

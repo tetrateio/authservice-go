@@ -51,13 +51,12 @@ var (
 
 // skipIfDockerHostNonResolvable skips the test if the Docker host is not resolvable.
 func skipIfDockerHostNonResolvable(t *testing.T) {
-	addr, err := net.ResolveIPAddr("ip", dockerLocalHost)
+	_, err := net.ResolveIPAddr("ip", dockerLocalHost)
 	if err != nil {
-		t.Skipf("skipping test: %[1]q is not resolvable\n"+
+		t.Fatalf("skipping test: %[1]q is not resolvable\n"+
 			"Please configure your environment so that %[1]q resolves to the address of the Docker host machine",
 			dockerLocalHost)
 	}
-	t.Logf("%s resolves to %s", dockerLocalHost, addr.String())
 }
 
 func TestOIDC(t *testing.T) {
