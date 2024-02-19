@@ -88,5 +88,7 @@ jobs:
         if: failure()
         with:
           name: e2e-logs
-          path: e2e/**/logs/*
+          path: |
+            e2e/**/logs/*
+            e2e/**/certs/*
           if-no-files-found: ignore

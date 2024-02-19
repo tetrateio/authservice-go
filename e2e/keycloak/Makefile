@@ -23,6 +23,7 @@ include ../suite.mk
 
 
 gen: gen/ca gen/certs  ## Generates the CA and certificates
+	@chmod -R a+r $(CERTS_DIR)
 
 $(CERTS_DIR):
 	@mkdir -p $(CERTS_DIR)
