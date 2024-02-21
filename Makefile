@@ -19,7 +19,6 @@ TEST_PKGS  ?= $(shell go list ./... | grep -v /e2e)
 OUTDIR     ?= bin
 
 include env.mk    # Load common variables
--include .makerc  # Pick up any local overrides.
 
 
 ##@ Build targets
