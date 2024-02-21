@@ -104,7 +104,7 @@ func TestOIDCRefreshTokens(t *testing.T) {
 	require.Contains(t, string(body), "Access allowed")
 
 	// Access tokens should expire in 10 seconds (tried with 5, but keycloak setup fails)
-	// Let's perform a request now and after 15 seconds to verify that the access token is refreshed
+	// Let's perform a request now and after 10 seconds to verify that the access token is refreshed
 
 	t.Run("request with same tokens", func(t *testing.T) {
 		res, err = client.Get(testURL)
