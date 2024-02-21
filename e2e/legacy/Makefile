@@ -15,7 +15,7 @@
 # Variables exported to parameterize the image used in the docker-compose.yaml
 # This allows running the same setup with the authservice-go and the legacy authservice images.
 
-ifeq ($(E2E_USE_IMAGE),legacy)
+ifeq ($(E2E_SUITE_MODE),legacy)
 export E2E_IMAGE    ?= $(DOCKER_HUB)/$(NAME):latest-$(ARCH)
 export E2E_PLATFORM ?= linux/$(ARCH)
 else

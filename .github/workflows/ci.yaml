@@ -102,6 +102,7 @@ jobs:
         mode: [current,legacy]
     env:
       E2E_TEST_OPTS: -v -count=1
+      E2E_SUITE_MODE: ${{ matrix.mode }}
       E2E_LEGACY_IMAGE: ghcr.io/istio-ecosystem/authservice/authservice:0.5.3
     steps:
       - uses: docker/setup-qemu-action@v3
