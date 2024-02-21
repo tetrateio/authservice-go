@@ -203,7 +203,6 @@ func (o *OIDCTestClient) ParseLoginForm(responseBody io.ReadCloser, formID strin
 	if err != nil {
 		return err
 	}
-	//o.loginURL, o.loginMethod, _, err = getFormAction(string(body), matchesFromId(formID), false)
 	o.loginURL, o.loginMethod, _, err = extractFromData(string(body), idFormMatcher{formID}, false)
 	return err
 }
@@ -215,7 +214,6 @@ func (o *OIDCTestClient) ParseLogoutForm(responseBody io.ReadCloser) error {
 		return err
 	}
 	var logoutURL string
-	//logoutURL, o.logoutMethod, o.logoutForm, err = getFormAction(string(body), matchesFirstForm, true)
 	logoutURL, o.logoutMethod, o.logoutForm, err = extractFromData(string(body), firstFormMatcher{}, true)
 	if err != nil {
 		return err
