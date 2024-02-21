@@ -1,6 +1,10 @@
-# Keycloak e2e tests
+# Legacy e2e tests
 
-The Keycloak e2e test suite contains tests that use the Keycloak OIDC provider. A
+The legacy e2e test suite has a configuration that is compatible with the old authservice, and
+contains tests that validate that the current authservice can be used as a drop-in replacement
+for the old one.
+
+The test suite contains tests that use the Keycloak OIDC provider. A
 Keycloak instance is deployed and configured in the Docker environment as the backend
 OIDC provider.
 
