@@ -25,8 +25,8 @@ flowchart LR
     envoy --> app
 ```
 
-The setup is performed in the [setup-keycloak.sh](setup-keycloak.sh) script, which
-configures the default `master` realm with:
+The setup is performed in the [setup-keycloak.sh](setup-keycloak.sh) script, which  configures the default
+`master` realm with:
 
 * A user named `authservice` with a predefined password.
 * A client named `authservice` with a predefined secret.
