@@ -47,12 +47,16 @@ services:
       - type: bind
         source: idp-proxy-config.yaml
         target: /etc/envoy/envoy-config.yaml
+    extra_hosts: # Required when running on Linux
+      - "host.docker.internal:host-gateway"
 
   # This is the `authservice` image that should be up-to-date when running the tests.
   ext-authz:
     depends_on:
       setup-keycloak:
         condition: service_completed_successfully
+      idp-proxy:
+        condition: service_started
     image: gcr.io/tetrate-internal-containers/authservice:latest-${ARCH:-amd64}
     platform: linux/${ARCH:-amd64}
     volumes:
