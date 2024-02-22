@@ -39,7 +39,7 @@ services:
   # Set the OIDC config `proxy_url` to `http://idp-proxy:9000` in the `authservice` config to use this proxy.
   idp-proxy:
     image: envoyproxy/envoy:v1.29-latest
-    platform: linux/arm64
+    platform: linux/${ARCH:-amd64}
     command: -c /etc/envoy/envoy-config.yaml --log-level warning
     ports:
       - "9000:9000" # Expose the proxy to auth0
