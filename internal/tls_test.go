@@ -52,7 +52,7 @@ func TestLoadTLSConfig(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		config   AuthServiceTLSConfig
+		config   TLSConfig
 		wantTLS  bool
 		wantSkip bool
 		wantPool bool

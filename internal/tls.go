@@ -22,8 +22,8 @@ import (
 	"os"
 )
 
-// AuthServiceTLSConfig is an interface for the TLS configuration of the AuthService.
-type AuthServiceTLSConfig interface {
+// TLSConfig is an interface for the TLS configuration of the AuthService.
+type TLSConfig interface {
 	// GetTrustedCertificateAuthority returns the trusted certificate authority PEM.
 	GetTrustedCertificateAuthority() string
 	// GetTrustedCertificateAuthorityFile returns the path to the trusted certificate authority file.
@@ -32,8 +32,8 @@ type AuthServiceTLSConfig interface {
 	GetSkipVerifyPeerCert() bool
 }
 
-// LoadTLSConfig loads a TLS configuration from the given AuthServiceTLSConfig.
-func LoadTLSConfig(config AuthServiceTLSConfig) (*tls.Config, error) {
+// LoadTLSConfig loads a TLS configuration from the given TLSConfig.
+func LoadTLSConfig(config TLSConfig) (*tls.Config, error) {
 	tlsConfig := &tls.Config{}
 
 	// Load the trusted CA PEM from the config
