@@ -18,7 +18,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1497,9 +1496,9 @@ func requireTokensInResponse(t *testing.T, resp *envoy.OkHttpResponse, cfg *oidc
 		wantIDToken, wantAccessToken string
 	)
 
-	wantIDToken = cfg.GetIdToken().GetPreamble() + " " + base64.URLEncoding.EncodeToString([]byte(idToken))
+	wantIDToken = encodeHeaderValue(cfg.GetIdToken().GetPreamble(), idToken)
 	if cfg.GetAccessToken() != nil {
-		wantAccessToken = cfg.GetAccessToken().GetPreamble() + " " + base64.URLEncoding.EncodeToString([]byte(accessToken))
+		wantAccessToken = encodeHeaderValue(cfg.GetAccessToken().GetPreamble(), accessToken)
 	}
 
 	for _, header := range resp.GetHeaders() {
