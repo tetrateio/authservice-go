@@ -15,7 +15,6 @@
 package internal
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/url"
@@ -26,10 +25,6 @@ import (
 	"github.com/tetratelabs/run"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	configv1 "github.com/tetrateio/authservice-go/config/gen/go/v1"
 	oidcv1 "github.com/tetrateio/authservice-go/config/gen/go/v1/oidc"
@@ -49,9 +44,6 @@ var (
 	ErrHealthPortInUse     = errors.New("health port is already in use by listen port")
 	ErrMustNotBeRootPath   = errors.New("must not be root path")
 	ErrMustBeDifferentPath = errors.New("must be different path")
-
-	// kubeClient is the in-cluster Kubernetes client used to retrieve the client secret from a Kubernetes secret.
-	kubeClient client.Client
 )
 
 // LocalConfigFile is a run.Config that loads the configuration file.
@@ -122,12 +114,6 @@ func (l *LocalConfigFile) Validate() error {
 	// we can properly validate the settings and  all filters have only one
 	// location where the OIDC configuration is defined.
 	if err = mergeAndValidateOIDCConfigs(&l.Config); err != nil {
-		return err
-	}
-
-	// Initialize the client secret from the Kubernetes secret if it is a referenced
-	// Kubernetes secret.
-	if err = initClientSecret(&l.Config); err != nil {
 		return err
 	}
 
@@ -290,83 +276,4 @@ func hasRootPath(uri string) bool {
 // isRootPath returns true if the path is "/" or empty.
 func isRootPath(path string) bool {
 	return path == "/" || path == ""
-}
-
-func initClientSecret(cfg *configv1.Config) error {
-	var (
-		err  error
-		errs []error
-	)
-
-	for _, fc := range cfg.Chains {
-		for _, f := range fc.Filters {
-			if f.GetOidc() != nil && f.GetOidc().GetClientSecretRef() != nil {
-				if kubeClient == nil {
-					kubeClient, err = getKubeClient()
-					if err != nil {
-						return fmt.Errorf("error creating kube client: %w", err)
-					}
-				}
-
-				clientSecret, err := getClientSecretFromK8s(f.GetOidc(), kubeClient)
-				if err != nil {
-					errs = append(errs, fmt.Errorf("error getting client secret: %w", err))
-				}
-
-				f.GetOidc().ClientSecretConfig = &oidcv1.OIDCConfig_ClientSecret{
-					ClientSecret: clientSecret,
-				}
-			}
-		}
-	}
-
-	return errors.Join(errs...)
-}
-
-const (
-	defaultNamespace = "default"
-	clientSecretKey  = "client-secret"
-)
-
-// getClientSecretFromK8s retrieves the client secret from the referenced Kubernetes secret.
-func getClientSecretFromK8s(c *oidcv1.OIDCConfig, cl client.Client) (string, error) {
-	if c.GetClientSecretRef() == nil {
-		return "", fmt.Errorf("client secret ref not found")
-	}
-
-	namespace := c.GetClientSecretRef().Namespace
-	if namespace == "" {
-		namespace = defaultNamespace
-	}
-	secretName := types.NamespacedName{
-		Namespace: namespace,
-		Name:      c.GetClientSecretRef().Name,
-	}
-
-	secret := &v1.Secret{}
-	err := cl.Get(context.Background(), secretName, secret)
-	if err != nil {
-		return "", fmt.Errorf("error getting secret: %w", err)
-	}
-
-	clientSecretBytes, ok := secret.Data[clientSecretKey]
-	if !ok || len(clientSecretBytes) == 0 {
-		return "", fmt.Errorf("client secret not found in secret %s", secretName.String())
-	}
-
-	return string(clientSecretBytes), nil
-}
-
-func getKubeClient() (client.Client, error) {
-	cfg, err := config.GetConfig()
-	if err != nil {
-		return nil, fmt.Errorf("error getting kube config: %w", err)
-	}
-
-	cl, err := client.New(cfg, client.Options{})
-	if err != nil {
-		return nil, fmt.Errorf("errot creating kube client: %w", err)
-	}
-
-	return cl, nil
 }

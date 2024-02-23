@@ -24,9 +24,6 @@ import (
 	"github.com/tetratelabs/telemetry"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
-	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	configv1 "github.com/tetrateio/authservice-go/config/gen/go/v1"
 	mockv1 "github.com/tetrateio/authservice-go/config/gen/go/v1/mock"
@@ -263,99 +260,6 @@ func TestConfigToJSONString(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := ConfigToJSONString(tt.config)
 			require.JSONEq(t, tt.want, got)
-		})
-	}
-}
-
-func TestLoadOIDCClientSecret(t *testing.T) {
-	validSecret := &v1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: "default",
-			Name:      "test-secret",
-		},
-		Data: map[string][]byte{
-			clientSecretKey: []byte("fake-client-secret"),
-		},
-	}
-	invalidSecret := &v1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: "default",
-			Name:      "invalid-secret",
-		},
-		Data: map[string][]byte{
-			clientSecretKey + "-invalid": []byte("fake-client-secret"),
-		},
-	}
-
-	// inject kube client for the test
-	kubeClient = fake.NewClientBuilder().WithObjects(validSecret, invalidSecret).Build()
-
-	tests := []struct {
-		name       string
-		configFile string
-		want       *configv1.Config
-		error      string
-	}{
-		{
-			name:       "valid-secret",
-			configFile: "oidc-with-valid-secret-ref",
-			want: &configv1.Config{
-				ListenAddress: "0.0.0.0",
-				ListenPort:    8080,
-				LogLevel:      "debug",
-				Threads:       1,
-				Chains: []*configv1.FilterChain{
-					{
-						Name: "oidc",
-						Filters: []*configv1.Filter{
-							{
-								Type: &configv1.Filter_Oidc{
-									Oidc: &oidcv1.OIDCConfig{
-										AuthorizationUri:        "http://fake",
-										TokenUri:                "http://fake",
-										CallbackUri:             "http://fake/callback",
-										JwksConfig:              &oidcv1.OIDCConfig_Jwks{Jwks: "fake-jwks"},
-										ClientId:                "fake-client-id",
-										ClientSecretConfig:      &oidcv1.OIDCConfig_ClientSecret{ClientSecret: "fake-client-secret"},
-										CookieNamePrefix:        "",
-										IdToken:                 &oidcv1.TokenConfig{Preamble: "Bearer", Header: "authorization"},
-										ProxyUri:                "http://fake",
-										RedisSessionStoreConfig: &oidcv1.RedisConfig{ServerUri: "redis://localhost:6379/0"},
-										Scopes:                  []string{scopeOIDC},
-										Logout:                  &oidcv1.LogoutConfig{Path: "/logout", RedirectUri: "http://fake"},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-			error: "",
-		},
-		{
-			name:       "valid-secret",
-			configFile: "oidc-with-invalid-secret-ref",
-			error:      "client secret not found in secret default/invalid-secret",
-		},
-		{
-			name:       "valid-secret",
-			configFile: "oidc-with-non-existing-secret-ref",
-			error:      "secrets \"non-existing-secret\" not found",
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			var cfg LocalConfigFile
-			g := run.Group{Logger: telemetry.NoopLogger()}
-			g.Register(&cfg)
-			err := g.Run("", "--config-path", fmt.Sprintf("testdata/%s.json", tc.configFile))
-			if tc.error != "" {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), tc.error)
-			} else {
-				require.NoError(t, err)
-				require.True(t, proto.Equal(tc.want, &cfg.Config))
-			}
 		})
 	}
 }
