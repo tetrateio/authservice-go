@@ -1152,10 +1152,8 @@ func TestMatchesLogoutPath(t *testing.T) {
 
 func TestEncodeTokensToHeaders(t *testing.T) {
 	const (
-		idToken        = "id-token"
-		accessToken    = "access-token"
-		idTokenB64     = "aWQtdG9rZW4="
-		accessTokenB64 = "YWNjZXNzLXRva2Vu"
+		idToken     = "id-token"
+		accessToken = "access-token"
 	)
 
 	tests := []struct {
@@ -1171,7 +1169,7 @@ func TestEncodeTokensToHeaders(t *testing.T) {
 			},
 			idToken: idToken, accessToken: "",
 			want: map[string]string{
-				"Authorization": "Bearer " + idTokenB64,
+				"Authorization": "Bearer " + idToken,
 			},
 		},
 		{
@@ -1182,8 +1180,8 @@ func TestEncodeTokensToHeaders(t *testing.T) {
 			},
 			idToken: idToken, accessToken: accessToken,
 			want: map[string]string{
-				"Authorization":  "Bearer " + idTokenB64,
-				"X-Access-Token": "Bearer " + accessTokenB64,
+				"Authorization":  "Bearer " + idToken,
+				"X-Access-Token": "Bearer " + accessToken,
 			},
 		},
 		{
@@ -1194,8 +1192,8 @@ func TestEncodeTokensToHeaders(t *testing.T) {
 			},
 			idToken: idToken, accessToken: accessToken,
 			want: map[string]string{
-				"X-Id-Token":           "Other " + idTokenB64,
-				"X-Access-Token-Other": "Other " + accessTokenB64,
+				"X-Id-Token":           "Other " + idToken,
+				"X-Access-Token-Other": "Other " + accessToken,
 			},
 		},
 		{
@@ -1206,7 +1204,7 @@ func TestEncodeTokensToHeaders(t *testing.T) {
 			},
 			idToken: idToken, accessToken: "",
 			want: map[string]string{
-				"Authorization": "Bearer " + idTokenB64,
+				"Authorization": "Bearer " + idToken,
 			},
 		},
 		{
@@ -1216,7 +1214,19 @@ func TestEncodeTokensToHeaders(t *testing.T) {
 			},
 			idToken: idToken, accessToken: accessToken,
 			want: map[string]string{
-				"Authorization": "Bearer " + idTokenB64,
+				"Authorization": "Bearer " + idToken,
+			},
+		},
+		{
+			name: "config with out preamble",
+			config: &oidcv1.OIDCConfig{
+				IdToken:     &oidcv1.TokenConfig{Header: "X-ID-Token"},
+				AccessToken: &oidcv1.TokenConfig{Header: "X-Access-Token"},
+			},
+			idToken: idToken, accessToken: accessToken,
+			want: map[string]string{
+				"X-ID-Token":     idToken,
+				"X-Access-Token": accessToken,
 			},
 		},
 	}
