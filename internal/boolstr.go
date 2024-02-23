@@ -21,7 +21,7 @@ import (
 )
 
 // BoolStrValue returns the bool value of a structpb.Value.
-// It expects the input to be a structpb.Value of type string ot bool that
+// It expects the input to be a structpb.Value of type string or bool that
 // represents a boolean value.
 // This method is a convenience method for backwards-compatibility with the
 // previous versions of the authservice.

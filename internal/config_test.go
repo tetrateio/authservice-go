@@ -222,7 +222,7 @@ func TestLoadOIDC(t *testing.T) {
 								RedisSessionStoreConfig: &oidcv1.RedisConfig{ServerUri: "redis://localhost:6379/0"},
 								Scopes:                  []string{scopeOIDC},
 								Logout:                  &oidcv1.LogoutConfig{Path: "/logout", RedirectUri: "http://fake"},
-								SkipVerifyPeerCert:      structpb.NewBoolValue(true),
+								TrustedCaConfig:         &oidcv1.OIDCConfig_SkipVerifyPeerCert{SkipVerifyPeerCert: structpb.NewBoolValue(true)},
 							},
 						},
 					},
