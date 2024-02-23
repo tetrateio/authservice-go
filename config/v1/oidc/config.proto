@@ -16,6 +16,7 @@ syntax = "proto3";
 
 package authservice.config.v1.oidc;
 
+import "google/protobuf/duration.proto";
 import "google/protobuf/struct.proto";
 import "validate/validate.proto";
 
@@ -201,6 +202,14 @@ message OIDCConfig {
     // Optional.
     string trusted_certificate_authority_file = 20;
   }
+
+  // The duration between refreshes of the trusted certificate authority if `trusted_certificate_authority_file` is set.
+  // Unset or 0 means disables the refresh, useful is no rotation is expected.
+  // Default is unset, means disabled.
+  // Is a String that ends in `s` to indicate seconds and is preceded by the number of seconds,
+  // with nanoseconds expressed as fractional seconds, e.g. `120.15s`.
+  // Optional.
+  google.protobuf.Duration trusted_certificate_authority_refresh_interval = 21;
 
   // The Authservice makes two kinds of direct network connections directly to the OIDC Provider.
   // Both are POST requests to the configured `token_uri` of the OIDC Provider.
