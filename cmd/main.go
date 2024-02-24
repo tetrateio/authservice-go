@@ -22,8 +22,6 @@ import (
 	"github.com/tetratelabs/run"
 	"github.com/tetratelabs/run/pkg/signal"
 	"github.com/tetratelabs/telemetry"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	"github.com/tetrateio/authservice-go/internal"
 	"github.com/tetrateio/authservice-go/internal/oidc"
@@ -31,12 +29,6 @@ import (
 )
 
 func main() {
-	k8sClient, err := getKubeClient()
-	if err != nil {
-		fmt.Printf("error creting k8s client: %v\n", err)
-		os.Exit(-1)
-	}
-
 	var (
 		configFile  = &internal.LocalConfigFile{}
 		logging     = internal.NewLogSystem(log.New(), &configFile.Config)
@@ -45,7 +37,7 @@ func main() {
 		envoyAuthz  = server.NewExtAuthZFilter(&configFile.Config, jwks, sessions)
 		authzServer = server.New(&configFile.Config, envoyAuthz.Register)
 		healthz     = server.NewHealthServer(&configFile.Config)
-		secrets     = internal.NewSecretLoader(&configFile.Config, k8sClient)
+		secrets     = internal.NewSecretLoader(&configFile.Config)
 	)
 
 	configLog := run.NewPreRunner("config-log", func() error {
@@ -74,19 +66,4 @@ func main() {
 		fmt.Printf("Unexpected exit: %v\n", err)
 		os.Exit(-1)
 	}
-}
-
-// getKubeClient returns a new Kubernetes client used to load secrets.
-func getKubeClient() (client.Client, error) {
-	cfg, err := config.GetConfig()
-	if err != nil {
-		return nil, fmt.Errorf("error getting kube config: %w", err)
-	}
-
-	cl, err := client.New(cfg, client.Options{})
-	if err != nil {
-		return nil, fmt.Errorf("errot creating kube client: %w", err)
-	}
-
-	return cl, nil
 }

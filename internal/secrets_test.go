@@ -117,8 +117,10 @@ func TestLoadOIDCClientSecret(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var cfg LocalConfigFile
+			sl := NewSecretLoader(&cfg.Config)
+			sl.k8sClient = kubeClient
 			g := run.Group{Logger: telemetry.NoopLogger()}
-			g.Register(&cfg, NewSecretLoader(&cfg.Config, kubeClient))
+			g.Register(&cfg, sl)
 			err := g.Run("", "--config-path", fmt.Sprintf("testdata/%s.json", tt.configFile))
 
 			require.ErrorIs(t, err, tt.err)
@@ -127,4 +129,17 @@ func TestLoadOIDCClientSecret(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestErrLoadingKubeConfig(t *testing.T) {
+	t.Setenv("KUBECONFIG", "non-existing-file")
+
+	var cfg LocalConfigFile
+	sl := NewSecretLoader(&cfg.Config)
+
+	g := run.Group{Logger: telemetry.NoopLogger()}
+	g.Register(&cfg, sl)
+	err := g.Run("", "--config-path", "testdata/oidc-with-valid-secret-ref.json")
+
+	require.ErrorContains(t, err, ErrLoadingKubeConfig.Error())
 }
