@@ -83,7 +83,7 @@ func (p *tlsConfigPool) LoadTLSConfig(config TLSConfig) (*tls.Config, error) {
 	}
 
 	log := p.log.With("id", id)
-	log.Debug("loading new TLS config", "config", encConfig.JSON())
+	log.Info("loading new TLS config", "config", encConfig.JSON())
 	tlsConfig := &tls.Config{}
 
 	// Load the trusted CA PEM from the config

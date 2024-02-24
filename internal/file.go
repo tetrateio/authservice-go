@@ -115,14 +115,14 @@ func (f *FileWatcher) WatchFile(reader Reader, interval time.Duration, callback 
 
 func (w *watcher) start() {
 	go func() {
-		w.log.Debug("start file watcher")
+		w.log.Info("start file watcher")
 
 		ticker := time.NewTicker(w.interval)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-w.ctx.Done():
-				w.log.Debug("stop file watcher")
+				w.log.Info("stop file watcher")
 				return
 
 			case <-ticker.C:
@@ -132,7 +132,7 @@ func (w *watcher) start() {
 					continue
 				}
 				if string(data) != string(w.data) {
-					w.log.Debug("file changed, invoking callback")
+					w.log.Info("file changed, invoking callback")
 					w.data = data
 					go w.callback(data)
 				}
