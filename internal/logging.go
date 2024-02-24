@@ -30,13 +30,11 @@ const (
 	Authz    = "authz"
 	Config   = "config"
 	Default  = "default"
-	File     = "file-watcher"
 	Health   = "health"
 	JWKS     = "jwks"
 	Requests = "requests"
 	Server   = "server"
 	Session  = "session"
-	TLSPool  = "tls-pool"
 )
 
 // scopes contains the list of all logging scopes
@@ -44,13 +42,11 @@ var scopes = map[string]string{
 	Authz:    "Envoy ext-authz filter implementation messages",
 	Config:   "Configuration messages",
 	Default:  "Default",
-	File:     "File watcher messages",
 	Health:   "Health server messages",
 	JWKS:     "JWKS update and parse messages",
 	Requests: "Logs all requests and responses received by the server",
 	Server:   "Server request handling messages",
 	Session:  "Session store messages",
-	TLSPool:  "TLS configuration pool messages",
 }
 
 // ErrInvalidLogLevel is returned when the configured log level is invalid.

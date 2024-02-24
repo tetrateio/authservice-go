@@ -31,8 +31,8 @@ type (
 		ctx context.Context
 		log telemetry.Logger
 
-		watchers map[string]*watcher
 		mu       sync.Mutex
+		watchers map[string]*watcher
 	}
 
 	// watcher watches a file for changes and calls a callback when the file changes.
@@ -60,7 +60,7 @@ type (
 func NewFileWatcher(ctx context.Context) *FileWatcher {
 	return &FileWatcher{
 		ctx:      ctx,
-		log:      Logger(File),
+		log:      Logger(Config),
 		watchers: map[string]*watcher{},
 	}
 }

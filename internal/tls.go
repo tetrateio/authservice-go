@@ -68,7 +68,7 @@ func NewTLSConfigPool(ctx context.Context) TLSConfigPool {
 	return &tlsConfigPool{
 		ctx:       ctx,
 		cancel:    cancel,
-		log:       Logger(TLSPool),
+		log:       Logger(Config),
 		configs:   make(map[string]*tls.Config),
 		caWatcher: NewFileWatcher(ctx),
 	}
@@ -143,7 +143,7 @@ func (p *tlsConfigPool) updateCA(id string, caPem []byte) {
 	p.mu.Lock()
 	tlsConfig, ok := p.configs[id]
 	if !ok {
-		log.Debug("couldn't update TLS config, not found")
+		log.Error("couldn't update TLS config", errors.New("config not found"))
 		p.mu.Unlock()
 		return
 	}
@@ -157,7 +157,7 @@ func (p *tlsConfigPool) updateCA(id string, caPem []byte) {
 	}
 
 	if ok := certPool.AppendCertsFromPEM(caPem); !ok {
-		log.Debug("could not load trusted certificate authority")
+		log.Error("could not load trusted certificate authority", errors.New("failed to append certificate in the cert pool"))
 		return
 	}
 
