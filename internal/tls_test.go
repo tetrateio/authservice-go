@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/tetrateio/authservice-go/config/gen/go/v1/oidc"
@@ -214,7 +213,7 @@ func TestTLSConfigPoolUpdates(t *testing.T) {
 
 	config := &oidc.OIDCConfig{
 		TrustedCaConfig: &oidc.OIDCConfig_TrustedCertificateAuthorityFile{TrustedCertificateAuthorityFile: caFile1},
-		TrustedCertificateAuthorityRefreshInterval: durationpb.New(interval),
+		TrustedCertificateAuthorityRefreshInterval: interval.String(),
 	}
 
 	// load the TLS config
@@ -308,11 +307,11 @@ func TestTLSConfigPoolWithMultipleConfigs(t *testing.T) {
 
 	config1 := &oidc.OIDCConfig{
 		TrustedCaConfig: &oidc.OIDCConfig_TrustedCertificateAuthorityFile{TrustedCertificateAuthorityFile: caFile1},
-		TrustedCertificateAuthorityRefreshInterval: durationpb.New(config1Interval),
+		TrustedCertificateAuthorityRefreshInterval: config1Interval.String(),
 	}
 	config2 := &oidc.OIDCConfig{
 		TrustedCaConfig: &oidc.OIDCConfig_TrustedCertificateAuthorityFile{TrustedCertificateAuthorityFile: caFile2},
-		TrustedCertificateAuthorityRefreshInterval: durationpb.New(config2Interval),
+		TrustedCertificateAuthorityRefreshInterval: config2Interval.String(),
 	}
 
 	// load the TLS config for config1

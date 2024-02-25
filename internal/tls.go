@@ -25,9 +25,9 @@ import (
 	"fmt"
 	"hash/fnv"
 	"sync"
+	"time"
 
 	"github.com/tetratelabs/telemetry"
-	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -40,7 +40,7 @@ type (
 		GetTrustedCertificateAuthorityFile() string
 		// GetSkipVerifyPeerCert returns whether to skip verification of the peer certificate.
 		GetSkipVerifyPeerCert() *structpb.Value
-		GetTrustedCertificateAuthorityRefreshInterval() *durationpb.Duration
+		GetTrustedCertificateAuthorityRefreshInterval() string
 	}
 
 	// TLSConfigPool is an interface for a pool of TLS configurations.
@@ -94,9 +94,10 @@ func (p *tlsConfigPool) LoadTLSConfig(config TLSConfig) (*tls.Config, error) {
 
 	case config.GetTrustedCertificateAuthorityFile() != "":
 		var err error
+		interval, _ := time.ParseDuration(config.GetTrustedCertificateAuthorityRefreshInterval())
 		ca, err = p.caWatcher.WatchFile(
 			NewFileReader(config.GetTrustedCertificateAuthorityFile()),
-			config.GetTrustedCertificateAuthorityRefreshInterval().AsDuration(),
+			interval,
 			func(data []byte) { p.updateCA(id, data) },
 		)
 		if err != nil {
@@ -184,7 +185,7 @@ func encodeConfig(config TLSConfig) tlsConfigEncoder {
 	return tlsConfigEncoder{
 		TrustedCA:                config.GetTrustedCertificateAuthority(),
 		TrustedCAFile:            config.GetTrustedCertificateAuthorityFile(),
-		TrustedCARefreshInterval: config.GetTrustedCertificateAuthorityRefreshInterval().AsDuration().String(),
+		TrustedCARefreshInterval: config.GetTrustedCertificateAuthorityRefreshInterval(),
 		SkipVerifyPeerCert:       BoolStrValue(config.GetSkipVerifyPeerCert()),
 	}
 }

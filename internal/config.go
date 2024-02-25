@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/tetratelabs/run"
@@ -167,6 +168,14 @@ func mergeAndValidateOIDCConfigs(cfg *configv1.Config) error {
 			if f.GetOidc().GetLogout() != nil && callbackURI.Path == f.GetOidc().GetLogout().GetPath() {
 				errs = append(errs, fmt.Errorf("%w: callback and logout paths must be different in chain %q", ErrMustBeDifferentPath, fc.Name))
 			}
+
+			// validate trusted ca refresh interval
+			if f.GetOidc().GetTrustedCertificateAuthorityRefreshInterval() != "" {
+				if _, err := time.ParseDuration(f.GetOidc().GetTrustedCertificateAuthorityRefreshInterval()); err != nil {
+					errs = append(errs, fmt.Errorf("invalid trusted CA refresh interval in chain %q: %w", fc.Name, err))
+				}
+			}
+
 		}
 	}
 	// Clear the default config as it has already been merged. This way there is only one

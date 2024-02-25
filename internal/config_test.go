@@ -67,6 +67,7 @@ func TestValidateConfig(t *testing.T) {
 		{"invalid-logout-path", "testdata/invalid-logout.json", errCheck{is: ErrMustNotBeRootPath}},
 		{"valid-logout-override-default", "testdata/valid-logout-override-default.json", errCheck{is: nil}},
 		{"invalid-callback-and-logout-path", "testdata/invalid-callback-logout.json", errCheck{is: ErrMustBeDifferentPath}},
+		{"invalid-trusted-ca-interval", "testdata/invalid-trusted-ca-interval.json", errCheck{msg: "invalid duration"}},
 		{"oidc-dynamic", "testdata/oidc-dynamic.json", errCheck{is: nil}},
 		{"valid", "testdata/mock.json", errCheck{is: nil}},
 	}
