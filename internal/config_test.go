@@ -225,6 +225,7 @@ func TestLoadOIDC(t *testing.T) {
 								Logout:                  &oidcv1.LogoutConfig{Path: "/logout", RedirectUri: "http://fake"},
 								TrustedCaConfig:         &oidcv1.OIDCConfig_TrustedCertificateAuthority{TrustedCertificateAuthority: "fake-ca-pem"},
 								SkipVerifyPeerCert:      structpb.NewBoolValue(true),
+								TrustedCertificateAuthorityRefreshInterval: "1h30m",
 							},
 						},
 					},

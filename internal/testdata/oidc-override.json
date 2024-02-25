@@ -34,7 +34,8 @@
               "jwks_uri": "http://fake/jwks",
               "skip_verify_peer_cert": "true"
             },
-            "trusted_certificate_authority": "fake-ca-pem"
+            "trusted_certificate_authority": "fake-ca-pem",
+            "trusted_certificate_authority_refresh_interval": "1h30m"
           }
         }
       ]
