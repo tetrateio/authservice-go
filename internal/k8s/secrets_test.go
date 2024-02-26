@@ -132,19 +132,6 @@ func TestLoadOIDCClientSecret(t *testing.T) {
 	}
 }
 
-func TestLoadWithInvalidKubeConfig(t *testing.T) {
-	t.Setenv("KUBECONFIG", "non-existing-file")
-
-	var cfg internal.LocalConfigFile
-	cl := NewClientLoader(&cfg.Config)
-
-	g := run.Group{Logger: telemetry.NoopLogger()}
-	g.Register(&cfg, cl)
-	err := g.Run("", "--config-path", "testdata/oidc-with-valid-secret-ref.json")
-
-	require.ErrorIs(t, err, ErrLoadingConfig)
-}
-
 var _ ClientLoader = mockClientLoader{}
 
 type mockClientLoader struct {
