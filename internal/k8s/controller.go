@@ -98,6 +98,7 @@ func (s *SecretController) Name() string { return "Secret controller" }
 func (s *SecretController) ServeContext(ctx context.Context) error {
 	// If there are no secrets to watch, we can skip starting the controller manager
 	if s.secrets.Len() == 0 {
+		<-ctx.Done()
 		return nil
 	}
 
