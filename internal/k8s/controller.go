@@ -24,6 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -40,11 +41,12 @@ var (
 
 // SecretController watches secrets for updates and updates the configuration with the loaded data.
 type SecretController struct {
-	log       telemetry.Logger
-	cfg       *configv1.Config
-	oldCfg    *configv1.Config
-	secrets   sets.Set[string]
-	k8sClient client.Client
+	log           telemetry.Logger
+	effectiveConf *configv1.Config
+	originalConf  *configv1.Config
+	secrets       sets.Set[string]
+	restConf      *rest.Config
+	k8sClient     client.Client
 }
 
 // NewSecretController creates a new k8s Controller that loads secrets from
@@ -75,10 +77,10 @@ func NewSecretController(cfg *configv1.Config) *SecretController {
 	}
 
 	return &SecretController{
-		log:     internal.Logger(internal.Config),
-		cfg:     cfg,
-		oldCfg:  oldCfg,
-		secrets: secrets,
+		log:           internal.Logger(internal.Config),
+		effectiveConf: cfg,
+		originalConf:  oldCfg,
+		secrets:       secrets,
 	}
 }
 
@@ -89,11 +91,16 @@ func (s *SecretController) Name() string { return "Secret controller" }
 // The controller manager is encapsulated in the secret controller because we
 // only need it to watch secrets and update the configuration.
 func (s *SecretController) ServeContext(ctx context.Context) error {
-	cfg, err := config.GetConfig()
-	if err != nil {
-		return fmt.Errorf("%w: %w", ErrLoadingConfig, err)
+	var err error
+
+	if s.restConf == nil {
+		s.restConf, err = config.GetConfig()
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrLoadingConfig, err)
+		}
 	}
-	mgr, err := ctrl.NewManager(cfg, manager.Options{})
+
+	mgr, err := ctrl.NewManager(s.restConf, manager.Options{})
 	s.k8sClient = mgr.GetClient()
 	if err != nil {
 		return fmt.Errorf("error creating controller manager: %w", err)
@@ -124,7 +131,7 @@ func (s *SecretController) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			return ctrl.Result{}, fmt.Errorf("%w: %s", ErrNoSecretData, changedSecret)
 		}
 
-		for i, c := range s.oldCfg.Chains {
+		for i, c := range s.originalConf.Chains {
 			for j, f := range c.Filters {
 				oidcCfg, ok := f.Type.(*configv1.Filter_Oidc)
 				if !ok || oidcCfg.Oidc.GetClientSecretRef().GetName() == "" {
@@ -138,13 +145,16 @@ func (s *SecretController) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 					Namespace: namespace,
 					Name:      oidcCfg.Oidc.GetClientSecretRef().GetName(),
 				}.String()
+
 				if secretName == changedSecret {
+					s.log.Info("updating client-secret from secret",
+						"secret", secretName, "client-id", oidcCfg.Oidc.GetClientId())
+
 					// Update the configuration with the loaded client secret
-					s.cfg.Chains[i].Filters[j].GetOidc().ClientSecretConfig = &oidcv1.OIDCConfig_ClientSecret{
+					s.effectiveConf.Chains[i].Filters[j].GetOidc().ClientSecretConfig = &oidcv1.OIDCConfig_ClientSecret{
 						ClientSecret: string(clientSecretBytes),
 					}
 				}
-
 			}
 		}
 	}
