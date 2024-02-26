@@ -31,17 +31,17 @@ import (
 
 func main() {
 	var (
-		lifecycle   = run.NewLifecycle()
-		configFile  = &internal.LocalConfigFile{}
-		logging     = internal.NewLogSystem(log.New(), &configFile.Config)
-		tlsPool     = internal.NewTLSConfigPool(lifecycle.Context())
-		jwks        = oidc.NewJWKSProvider(tlsPool)
-		sessions    = oidc.NewSessionStoreFactory(&configFile.Config)
-		envoyAuthz  = server.NewExtAuthZFilter(&configFile.Config, tlsPool, jwks, sessions)
-		authzServer = server.New(&configFile.Config, envoyAuthz.Register)
-		healthz     = server.NewHealthServer(&configFile.Config)
-		controller  = k8s.NewSecretController(&configFile.Config)
-		secrets     = k8s.NewSecretLoader(&configFile.Config)
+		lifecycle    = run.NewLifecycle()
+		configFile   = &internal.LocalConfigFile{}
+		logging      = internal.NewLogSystem(log.New(), &configFile.Config)
+		tlsPool      = internal.NewTLSConfigPool(lifecycle.Context())
+		jwks         = oidc.NewJWKSProvider(tlsPool)
+		sessions     = oidc.NewSessionStoreFactory(&configFile.Config)
+		envoyAuthz   = server.NewExtAuthZFilter(&configFile.Config, tlsPool, jwks, sessions)
+		authzServer  = server.New(&configFile.Config, envoyAuthz.Register)
+		healthz      = server.NewHealthServer(&configFile.Config)
+		secretCtrl   = k8s.NewSecretController(&configFile.Config)
+		secretLoader = k8s.NewSecretLoader(&configFile.Config)
 	)
 
 	configLog := run.NewPreRunner("config-log", func() error {
@@ -57,12 +57,14 @@ func main() {
 	g.Register(
 		lifecycle,  // manage the lifecycle of the run.Services
 		configFile, // load the configuration
-		logging,    // set up the logging system
-		// Note: order matters here, the controller should be started before
-		// client secrets are loaded, otherwise, the controller will not be able
-		// to get the original configuration.
-		controller,        // watch for secret updates and update the configuration
-		secrets,           // load the secrets and update the configuration
+		logging,    // Set up the logging system
+		// Note: order matters here.
+		// The controller must be started before client secrets are loaded.
+		// Otherwise, the controller will not be able to get the original
+		// configuration since secret loader will update the client secret
+		// references and change the references to the client secret data.
+		secretCtrl,        // watch for secret updates and update the configuration
+		secretLoader,      // load the secrets and update the configuration
 		configLog,         // log the configuration
 		jwks,              // start the JWKS provider
 		sessions,          // start the session store
