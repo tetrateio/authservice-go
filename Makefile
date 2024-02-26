@@ -17,6 +17,7 @@ BUILD_OPTS ?=
 TEST_OPTS  ?=
 TEST_PKGS  ?= $(shell go list ./... | grep -v /e2e)
 OUTDIR     ?= bin
+ENVTEST    ?= sigs.k8s.io/controller-runtime/tools/setup-envtest
 
 include env.mk    # Load common variables
 
@@ -92,11 +93,14 @@ COVERAGE_OPTS ?=
 coverage:  ## Creates coverage report for all projects
 	@echo "Running test coverage"
 	@mkdir -p $(OUTDIR)/$@
-	@go test $(COVERAGE_OPTS) \
-		-timeout 30s \
-		-coverprofile $(OUTDIR)/$@/coverage.out \
-		-covermode atomic \
-		$(TEST_PKGS)
+	@go get $(ENVTEST)
+	KUBEBUILDER_ASSETS="$(shell go run $(ENVTEST) use -p path)" \
+		go test $(COVERAGE_OPTS) \
+			--tags=integration \
+			-timeout 30s \
+			-coverprofile $(OUTDIR)/$@/coverage.out \
+			-covermode atomic \
+			$(TEST_PKGS)
 	@go tool cover -html="$(OUTDIR)/$@/coverage.out" -o "$(OUTDIR)/$@/coverage.html"
 
 .PHONY: e2e
