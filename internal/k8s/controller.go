@@ -96,8 +96,12 @@ func (s *SecretController) Name() string { return "Secret controller" }
 // The controller manager is encapsulated in the secret controller because we
 // only need it to watch secrets and update the configuration.
 func (s *SecretController) ServeContext(ctx context.Context) error {
-	var err error
+	// If there are no secrets to watch, we can skip starting the controller manager
+	if s.secrets.Len() == 0 {
+		return nil
+	}
 
+	var err error
 	if s.restConf == nil {
 		s.restConf, err = config.GetConfig()
 		if err != nil {
