@@ -41,6 +41,7 @@ func main() {
 		authzServer = server.New(&configFile.Config, envoyAuthz.Register)
 		healthz     = server.NewHealthServer(&configFile.Config)
 		secrets     = k8s.NewSecretLoader(&configFile.Config)
+		contoller   = k8s.NewSecretController(&configFile.Config)
 	)
 
 	configLog := run.NewPreRunner("config-log", func() error {
@@ -58,6 +59,7 @@ func main() {
 		configFile,        // load the configuration
 		logging,           // set up the logging system
 		secrets,           // load the secrets and update the configuration
+		contoller,         // watch for secret updates and update the configuration
 		configLog,         // log the configuration
 		jwks,              // start the JWKS provider
 		sessions,          // start the session store
