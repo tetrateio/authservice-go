@@ -15,32 +15,22 @@
 package k8s
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/tetratelabs/run"
-	"github.com/tetratelabs/telemetry"
-	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-
-	configv1 "github.com/tetrateio/authservice-go/config/gen/go/v1"
-	mockv1 "github.com/tetrateio/authservice-go/config/gen/go/v1/mock"
-	oidcv1 "github.com/tetrateio/authservice-go/config/gen/go/v1/oidc"
-	"github.com/tetrateio/authservice-go/internal"
 )
 
-func TestLoadOIDCClientSecret(t *testing.T) {
+func TestSecretReader(t *testing.T) {
 	validSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "default",
 			Name:      "test-secret",
 		},
 		Data: map[string][]byte{
-			clientSecretKey: []byte("fake-client-secret"),
+			"key": []byte("fake-client-secret"),
 		},
 	}
 	invalidSecret := &corev1.Secret{
@@ -49,94 +39,55 @@ func TestLoadOIDCClientSecret(t *testing.T) {
 			Name:      "invalid-secret",
 		},
 		Data: map[string][]byte{
-			clientSecretKey + "-invalid": []byte("fake-client-secret"),
+			"invalid-key": []byte("fake-client-secret"),
 		},
 	}
 
 	kubeClient := fake.NewClientBuilder().WithObjects(validSecret, invalidSecret).Build()
 
 	tests := []struct {
+		caseName   string
 		name       string
-		configFile string
-		want       *configv1.Config
-		err        error
+		namespace  string
+		key        string
+		wantErr    error
+		wantSecret string
 	}{
 		{
-			name:       "valid-secret",
-			configFile: "oidc-with-valid-secret-ref",
-			want: &configv1.Config{
-				ListenAddress: "0.0.0.0",
-				ListenPort:    8080,
-				LogLevel:      "debug",
-				Threads:       1,
-				Chains: []*configv1.FilterChain{
-					{
-						Name: "oidc",
-						Filters: []*configv1.Filter{
-							{
-								Type: &configv1.Filter_Mock{
-									Mock: &mockv1.MockConfig{
-										Allow: true,
-									},
-								},
-							},
-							{
-								Type: &configv1.Filter_Oidc{
-									Oidc: &oidcv1.OIDCConfig{
-										AuthorizationUri:        "http://fake",
-										TokenUri:                "http://fake",
-										CallbackUri:             "http://fake/callback",
-										JwksConfig:              &oidcv1.OIDCConfig_Jwks{Jwks: "fake-jwks"},
-										ClientId:                "fake-client-id",
-										ClientSecretConfig:      &oidcv1.OIDCConfig_ClientSecret{ClientSecret: "fake-client-secret"},
-										CookieNamePrefix:        "",
-										IdToken:                 &oidcv1.TokenConfig{Preamble: "Bearer", Header: "authorization"},
-										ProxyUri:                "http://fake",
-										RedisSessionStoreConfig: &oidcv1.RedisConfig{ServerUri: "redis://localhost:6379/0"},
-										Scopes:                  []string{"openid"},
-										Logout:                  &oidcv1.LogoutConfig{Path: "/logout", RedirectUri: "http://fake"},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-			err: nil,
+			caseName:   "valid secret",
+			name:       "test-secret",
+			namespace:  "default",
+			key:        "key",
+			wantSecret: "fake-client-secret",
 		},
 		{
-			name:       "invalid-secret",
-			configFile: "oidc-with-invalid-secret-ref",
-			err:        ErrNoSecretData,
+			caseName: "invalid secret",
+			name:     "invalid-secret",
+			key:      "key",
+			wantErr:  ErrNoSecretData,
 		},
 		{
-			name:       "not-found-secret",
-			configFile: "oidc-with-non-existing-secret-ref",
-			err:        ErrGetSecret,
+			caseName: "no existing secret",
+			name:     "non-existing-secret",
+			key:      "key",
+			wantErr:  ErrGetSecret,
 		},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var cfg internal.LocalConfigFile
-			sl := NewSecretLoader(&cfg.Config, mockClientLoader{Client: kubeClient})
-			g := run.Group{Logger: telemetry.NoopLogger()}
-			g.Register(&cfg, sl)
-			err := g.Run("", "--config-path", fmt.Sprintf("testdata/%s.json", tt.configFile))
-
-			require.ErrorIs(t, err, tt.err)
-			if tt.err == nil {
-				require.True(t, proto.Equal(tt.want, &cfg.Config))
-			}
+		t.Run(tt.caseName, func(t *testing.T) {
+			sr := NewSecretReader(kubeClient, tt.name, tt.namespace, tt.key)
+			got, err := sr.Read()
+			require.ErrorIs(t, err, tt.wantErr)
+			require.Equal(t, tt.wantSecret, string(got))
 		})
 	}
 }
 
-var _ ClientLoader = mockClientLoader{}
+func TestSecretReader_ID(t *testing.T) {
+	sr := NewSecretReader(nil, "name", "namespace", "key")
+	require.Equal(t, "k8s-secret-(namespace/name)", sr.ID())
 
-type mockClientLoader struct {
-	client.Client
+	sr = NewSecretReader(nil, "name", "", "key")
+	require.Equal(t, "k8s-secret-(default/name)", sr.ID())
 }
-
-func (m mockClientLoader) Name() string       { return "mockClientLoader" }
-func (m mockClientLoader) Get() client.Client { return m.Client }

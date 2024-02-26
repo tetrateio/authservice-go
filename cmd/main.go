@@ -42,7 +42,7 @@ func main() {
 		envoyAuthz  = server.NewExtAuthZFilter(&configFile.Config, tlsPool, jwks, sessions)
 		authzServer = server.New(&configFile.Config, envoyAuthz.Register)
 		healthz     = server.NewHealthServer(&configFile.Config)
-		secrets     = k8s.NewSecretLoader(&configFile.Config, k8sClient)
+		secrets     = oidc.NewClientSecretLoader(lifecycle.Context(), &configFile.Config, k8sClient)
 	)
 
 	configLog := run.NewPreRunner("config-log", func() error {
@@ -60,7 +60,7 @@ func main() {
 		configFile,        // load the configuration
 		logging,           // set up the logging system
 		k8sClient,         // start the Kubernetes client
-		secrets,           // load the secrets and update the configuration
+		secrets,           // load the OIDC client secrets and update the configuration
 		configLog,         // log the configuration
 		jwks,              // start the JWKS provider
 		sessions,          // start the session store

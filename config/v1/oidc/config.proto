@@ -156,7 +156,14 @@ message OIDCConfig {
     // This is an Opaque secret. The client secret should be stored in the key "client-secret".
     // This filed is only valid when running in a Kubernetes cluster.
     SecretReference client_secret_ref = 21;
+
+    // The file path to the OIDC client secret assigned to the filter to be used in the
+    // [Authentication Request](https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest).
+    string client_secret_file = 24;
   }
+
+  // The duration between refreshes of the client secret if `client_secret_ref` is set.
+  google.protobuf.Duration client_secret_refresh_interval = 25;
 
   // Additional scopes passed to the OIDC Provider in the
   // [Authentication Request](https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest).

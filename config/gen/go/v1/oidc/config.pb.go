@@ -263,7 +263,10 @@ type OIDCConfig struct {
 	//
 	//	*OIDCConfig_ClientSecret
 	//	*OIDCConfig_ClientSecretRef
+	//	*OIDCConfig_ClientSecretFile
 	ClientSecretConfig isOIDCConfig_ClientSecretConfig `protobuf_oneof:"client_secret_config"`
+	// The duration between refreshes of the client secret if `client_secret_ref` is set.
+	ClientSecretRefreshInterval *durationpb.Duration `protobuf:"bytes,25,opt,name=client_secret_refresh_interval,json=clientSecretRefreshInterval,proto3" json:"client_secret_refresh_interval,omitempty"`
 	// Additional scopes passed to the OIDC Provider in the
 	// [Authentication Request](https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest).
 	// The `openid` scope is always sent to the OIDC Provider, and does not need to be specified here.
@@ -459,6 +462,20 @@ func (x *OIDCConfig) GetClientSecretRef() *OIDCConfig_SecretReference {
 	return nil
 }
 
+func (x *OIDCConfig) GetClientSecretFile() string {
+	if x, ok := x.GetClientSecretConfig().(*OIDCConfig_ClientSecretFile); ok {
+		return x.ClientSecretFile
+	}
+	return ""
+}
+
+func (x *OIDCConfig) GetClientSecretRefreshInterval() *durationpb.Duration {
+	if x != nil {
+		return x.ClientSecretRefreshInterval
+	}
+	return nil
+}
+
 func (x *OIDCConfig) GetScopes() []string {
 	if x != nil {
 		return x.Scopes
@@ -608,9 +625,17 @@ type OIDCConfig_ClientSecretRef struct {
 	ClientSecretRef *OIDCConfig_SecretReference `protobuf:"bytes,21,opt,name=client_secret_ref,json=clientSecretRef,proto3,oneof"`
 }
 
+type OIDCConfig_ClientSecretFile struct {
+	// The file path to the OIDC client secret assigned to the filter to be used in the
+	// [Authentication Request](https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest).
+	ClientSecretFile string `protobuf:"bytes,24,opt,name=client_secret_file,json=clientSecretFile,proto3,oneof"`
+}
+
 func (*OIDCConfig_ClientSecret) isOIDCConfig_ClientSecretConfig() {}
 
 func (*OIDCConfig_ClientSecretRef) isOIDCConfig_ClientSecretConfig() {}
+
+func (*OIDCConfig_ClientSecretFile) isOIDCConfig_ClientSecretConfig() {}
 
 type isOIDCConfig_TrustedCaConfig interface {
 	isOIDCConfig_TrustedCaConfig()
@@ -802,7 +827,7 @@ var file_v1_oidc_config_proto_rawDesc = []byte{
 	0x02, 0x10, 0x01, 0x52, 0x04, 0x70, 0x61, 0x74, 0x68, 0x12, 0x2a, 0x0a, 0x0c, 0x72, 0x65, 0x64,
 	0x69, 0x72, 0x65, 0x63, 0x74, 0x5f, 0x75, 0x72, 0x69, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x42,
 	0x07, 0xfa, 0x42, 0x04, 0x72, 0x02, 0x10, 0x01, 0x52, 0x0b, 0x72, 0x65, 0x64, 0x69, 0x72, 0x65,
-	0x63, 0x74, 0x55, 0x72, 0x69, 0x22, 0xa1, 0x0e, 0x0a, 0x0a, 0x4f, 0x49, 0x44, 0x43, 0x43, 0x6f,
+	0x63, 0x74, 0x55, 0x72, 0x69, 0x22, 0xb1, 0x0f, 0x0a, 0x0a, 0x4f, 0x49, 0x44, 0x43, 0x43, 0x6f,
 	0x6e, 0x66, 0x69, 0x67, 0x12, 0x2b, 0x0a, 0x11, 0x63, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x75, 0x72,
 	0x61, 0x74, 0x69, 0x6f, 0x6e, 0x5f, 0x75, 0x72, 0x69, 0x18, 0x13, 0x20, 0x01, 0x28, 0x09, 0x52,
 	0x10, 0x63, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x75, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x55, 0x72,
@@ -832,6 +857,15 @@ var file_v1_oidc_config_proto_rawDesc = []byte{
 	0x63, 0x2e, 0x4f, 0x49, 0x44, 0x43, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x2e, 0x53, 0x65, 0x63,
 	0x72, 0x65, 0x74, 0x52, 0x65, 0x66, 0x65, 0x72, 0x65, 0x6e, 0x63, 0x65, 0x48, 0x01, 0x52, 0x0f,
 	0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x53, 0x65, 0x63, 0x72, 0x65, 0x74, 0x52, 0x65, 0x66, 0x12,
+	0x2e, 0x0a, 0x12, 0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x5f, 0x73, 0x65, 0x63, 0x72, 0x65, 0x74,
+	0x5f, 0x66, 0x69, 0x6c, 0x65, 0x18, 0x18, 0x20, 0x01, 0x28, 0x09, 0x48, 0x01, 0x52, 0x10, 0x63,
+	0x6c, 0x69, 0x65, 0x6e, 0x74, 0x53, 0x65, 0x63, 0x72, 0x65, 0x74, 0x46, 0x69, 0x6c, 0x65, 0x12,
+	0x5e, 0x0a, 0x1e, 0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x5f, 0x73, 0x65, 0x63, 0x72, 0x65, 0x74,
+	0x5f, 0x72, 0x65, 0x66, 0x72, 0x65, 0x73, 0x68, 0x5f, 0x69, 0x6e, 0x74, 0x65, 0x72, 0x76, 0x61,
+	0x6c, 0x18, 0x19, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x19, 0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65,
+	0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66, 0x2e, 0x44, 0x75, 0x72, 0x61, 0x74, 0x69,
+	0x6f, 0x6e, 0x52, 0x1b, 0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x53, 0x65, 0x63, 0x72, 0x65, 0x74,
+	0x52, 0x65, 0x66, 0x72, 0x65, 0x73, 0x68, 0x49, 0x6e, 0x74, 0x65, 0x72, 0x76, 0x61, 0x6c, 0x12,
 	0x16, 0x0a, 0x06, 0x73, 0x63, 0x6f, 0x70, 0x65, 0x73, 0x18, 0x07, 0x20, 0x03, 0x28, 0x09, 0x52,
 	0x06, 0x73, 0x63, 0x6f, 0x70, 0x65, 0x73, 0x12, 0x2c, 0x0a, 0x12, 0x63, 0x6f, 0x6f, 0x6b, 0x69,
 	0x65, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x5f, 0x70, 0x72, 0x65, 0x66, 0x69, 0x78, 0x18, 0x08, 0x20,
@@ -961,19 +995,20 @@ var file_v1_oidc_config_proto_goTypes = []interface{}{
 var file_v1_oidc_config_proto_depIdxs = []int32{
 	4,  // 0: authservice.config.v1.oidc.OIDCConfig.jwks_fetcher:type_name -> authservice.config.v1.oidc.OIDCConfig.JwksFetcherConfig
 	5,  // 1: authservice.config.v1.oidc.OIDCConfig.client_secret_ref:type_name -> authservice.config.v1.oidc.OIDCConfig.SecretReference
-	0,  // 2: authservice.config.v1.oidc.OIDCConfig.id_token:type_name -> authservice.config.v1.oidc.TokenConfig
-	0,  // 3: authservice.config.v1.oidc.OIDCConfig.access_token:type_name -> authservice.config.v1.oidc.TokenConfig
-	2,  // 4: authservice.config.v1.oidc.OIDCConfig.logout:type_name -> authservice.config.v1.oidc.LogoutConfig
-	5,  // 5: authservice.config.v1.oidc.OIDCConfig.trusted_certificate_authority_secret:type_name -> authservice.config.v1.oidc.OIDCConfig.SecretReference
-	6,  // 6: authservice.config.v1.oidc.OIDCConfig.trusted_certificate_authority_refresh_interval:type_name -> google.protobuf.Duration
-	1,  // 7: authservice.config.v1.oidc.OIDCConfig.redis_session_store_config:type_name -> authservice.config.v1.oidc.RedisConfig
-	7,  // 8: authservice.config.v1.oidc.OIDCConfig.skip_verify_peer_cert:type_name -> google.protobuf.Value
-	7,  // 9: authservice.config.v1.oidc.OIDCConfig.JwksFetcherConfig.skip_verify_peer_cert:type_name -> google.protobuf.Value
-	10, // [10:10] is the sub-list for method output_type
-	10, // [10:10] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	6,  // 2: authservice.config.v1.oidc.OIDCConfig.client_secret_refresh_interval:type_name -> google.protobuf.Duration
+	0,  // 3: authservice.config.v1.oidc.OIDCConfig.id_token:type_name -> authservice.config.v1.oidc.TokenConfig
+	0,  // 4: authservice.config.v1.oidc.OIDCConfig.access_token:type_name -> authservice.config.v1.oidc.TokenConfig
+	2,  // 5: authservice.config.v1.oidc.OIDCConfig.logout:type_name -> authservice.config.v1.oidc.LogoutConfig
+	5,  // 6: authservice.config.v1.oidc.OIDCConfig.trusted_certificate_authority_secret:type_name -> authservice.config.v1.oidc.OIDCConfig.SecretReference
+	6,  // 7: authservice.config.v1.oidc.OIDCConfig.trusted_certificate_authority_refresh_interval:type_name -> google.protobuf.Duration
+	1,  // 8: authservice.config.v1.oidc.OIDCConfig.redis_session_store_config:type_name -> authservice.config.v1.oidc.RedisConfig
+	7,  // 9: authservice.config.v1.oidc.OIDCConfig.skip_verify_peer_cert:type_name -> google.protobuf.Value
+	7,  // 10: authservice.config.v1.oidc.OIDCConfig.JwksFetcherConfig.skip_verify_peer_cert:type_name -> google.protobuf.Value
+	11, // [11:11] is the sub-list for method output_type
+	11, // [11:11] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_v1_oidc_config_proto_init() }
@@ -1060,6 +1095,7 @@ func file_v1_oidc_config_proto_init() {
 		(*OIDCConfig_JwksFetcher)(nil),
 		(*OIDCConfig_ClientSecret)(nil),
 		(*OIDCConfig_ClientSecretRef)(nil),
+		(*OIDCConfig_ClientSecretFile)(nil),
 		(*OIDCConfig_TrustedCertificateAuthority)(nil),
 		(*OIDCConfig_TrustedCertificateAuthorityFile)(nil),
 		(*OIDCConfig_TrustedCertificateAuthoritySecret)(nil),
