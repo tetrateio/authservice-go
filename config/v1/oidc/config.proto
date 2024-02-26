@@ -221,6 +221,10 @@ message OIDCConfig {
     // The file path to the PEM-encoded certificate authority to trust when performing HTTPS calls to the OIDC Identity Provider.
     // Optional.
     string trusted_certificate_authority_file = 20;
+
+    // The Kubernetes secret that contains the PEM-encoded certificate authority to trust
+    // when performing HTTPS calls to the OIDC Identity Provider.
+    SecretReference trusted_certificate_authority_secret = 23;
   }
 
   // The duration between refreshes of the trusted certificate authority if `trusted_certificate_authority_file` is set.

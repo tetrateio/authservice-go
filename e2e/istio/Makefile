@@ -16,7 +16,7 @@ include ../suite-certs.mk
 include ../suite-k8s.mk
 
 .PHONY: gen-certs
-gen-certs: clean-certs ca/ca.authservice.internal certificate/http-echo.authservice.internal
+gen-certs: clean-certs ca/ca.authservice.internal certificate/http-echo.authservice.internal certificate/keycloak.keycloak
 	@chmod -R a+r $(CERTS_DIR)
 
 .PHONY: clean

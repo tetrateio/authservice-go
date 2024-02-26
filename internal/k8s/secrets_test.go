@@ -24,6 +24,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	configv1 "github.com/tetrateio/authservice-go/config/gen/go/v1"
@@ -92,7 +93,7 @@ func TestLoadOIDCClientSecret(t *testing.T) {
 										IdToken:                 &oidcv1.TokenConfig{Preamble: "Bearer", Header: "authorization"},
 										ProxyUri:                "http://fake",
 										RedisSessionStoreConfig: &oidcv1.RedisConfig{ServerUri: "redis://localhost:6379/0"},
-										Scopes:                  []string{internal.ScopeOIDC},
+										Scopes:                  []string{"openid"},
 										Logout:                  &oidcv1.LogoutConfig{Path: "/logout", RedirectUri: "http://fake"},
 									},
 								},
@@ -118,8 +119,7 @@ func TestLoadOIDCClientSecret(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var cfg internal.LocalConfigFile
-			sl := NewSecretLoader(&cfg.Config)
-			sl.k8sClient = kubeClient
+			sl := NewSecretLoader(&cfg.Config, mockClientLoader{Client: kubeClient})
 			g := run.Group{Logger: telemetry.NoopLogger()}
 			g.Register(&cfg, sl)
 			err := g.Run("", "--config-path", fmt.Sprintf("testdata/%s.json", tt.configFile))
@@ -136,11 +136,20 @@ func TestLoadWithInvalidKubeConfig(t *testing.T) {
 	t.Setenv("KUBECONFIG", "non-existing-file")
 
 	var cfg internal.LocalConfigFile
-	sl := NewSecretLoader(&cfg.Config)
+	cl := NewClientLoader(&cfg.Config)
 
 	g := run.Group{Logger: telemetry.NoopLogger()}
-	g.Register(&cfg, sl)
+	g.Register(&cfg, cl)
 	err := g.Run("", "--config-path", "testdata/oidc-with-valid-secret-ref.json")
 
 	require.ErrorIs(t, err, ErrLoadingConfig)
 }
+
+var _ ClientLoader = mockClientLoader{}
+
+type mockClientLoader struct {
+	client.Client
+}
+
+func (m mockClientLoader) Name() string       { return "mockClientLoader" }
+func (m mockClientLoader) Get() client.Client { return m.Client }

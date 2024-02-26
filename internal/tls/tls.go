@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package internal
+package tls
 
 import (
 	"bytes"
@@ -29,15 +29,23 @@ import (
 	"github.com/tetratelabs/telemetry"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/structpb"
+
+	oidcv1 "github.com/tetrateio/authservice-go/config/gen/go/v1/oidc"
+	"github.com/tetrateio/authservice-go/internal"
+	"github.com/tetrateio/authservice-go/internal/k8s"
 )
 
+const caSecretkey = "ca.crt"
+
 type (
-	// TLSConfig is an interface for the TLS configuration of the AuthService.
-	TLSConfig interface {
+	// Config is an interface for the TLS configuration of the AuthService.
+	Config interface {
 		// GetTrustedCertificateAuthority returns the trusted certificate authority PEM.
 		GetTrustedCertificateAuthority() string
 		// GetTrustedCertificateAuthorityFile returns the path to the trusted certificate authority file.
 		GetTrustedCertificateAuthorityFile() string
+		// GetTrustedCertificateAuthoritySecret returns the secret containing the trusted certificate authority.
+		GetTrustedCertificateAuthoritySecret() *oidcv1.OIDCConfig_SecretReference
 		// GetSkipVerifyPeerCert returns whether to skip verification of the peer certificate.
 		GetSkipVerifyPeerCert() *structpb.Value
 		// GetTrustedCertificateAuthorityRefreshInterval returns interval at which the trusted certificate
@@ -45,10 +53,10 @@ type (
 		GetTrustedCertificateAuthorityRefreshInterval() *durationpb.Duration
 	}
 
-	// TLSConfigPool is an interface for a pool of TLS configurations.
-	TLSConfigPool interface {
-		// LoadTLSConfig loads a TLS configuration from the given TLSConfig.
-		LoadTLSConfig(config TLSConfig) (*tls.Config, error)
+	// ConfigPool is an interface for a pool of TLS configurations.
+	ConfigPool interface {
+		// LoadTLSConfig loads a TLS configuration from the given Config.
+		LoadTLSConfig(config Config) (*tls.Config, error)
 	}
 
 	// tlsConfigPool is a pool of TLS configurations.
@@ -58,21 +66,23 @@ type (
 
 		mu        sync.RWMutex
 		configs   map[string]*tls.Config
-		caWatcher *FileWatcher
+		caWatcher *internal.FileWatcher
+		k8sLoader k8s.ClientLoader
 	}
 )
 
-// NewTLSConfigPool creates a new TLSConfigPool.
-func NewTLSConfigPool(ctx context.Context) TLSConfigPool {
+// NewTLSConfigPool creates a new ConfigPool.
+func NewTLSConfigPool(ctx context.Context, k8sLoader k8s.ClientLoader) ConfigPool {
 	return &tlsConfigPool{
-		log:       Logger(Config),
+		log:       internal.Logger(internal.Config),
 		configs:   make(map[string]*tls.Config),
-		caWatcher: NewFileWatcher(ctx),
+		caWatcher: internal.NewFileWatcher(ctx),
+		k8sLoader: k8sLoader,
 	}
 }
 
-// LoadTLSConfig loads a TLS configuration from the given TLSConfig.
-func (p *tlsConfigPool) LoadTLSConfig(config TLSConfig) (*tls.Config, error) {
+// LoadTLSConfig loads a TLS configuration from the given Config.
+func (p *tlsConfigPool) LoadTLSConfig(config Config) (*tls.Config, error) {
 	encConfig := encodeConfig(config)
 	id := encConfig.hash()
 	if tlsConfig, ok := p.configs[id]; ok {
@@ -92,16 +102,32 @@ func (p *tlsConfigPool) LoadTLSConfig(config TLSConfig) (*tls.Config, error) {
 	case config.GetTrustedCertificateAuthorityFile() != "":
 		var err error
 		ca, err = p.caWatcher.WatchFile(
-			NewFileReader(config.GetTrustedCertificateAuthorityFile()),
+			internal.NewFileReader(config.GetTrustedCertificateAuthorityFile()),
 			config.GetTrustedCertificateAuthorityRefreshInterval().AsDuration(),
 			func(data []byte) { p.updateCA(id, data) },
 		)
 		if err != nil {
-			return nil, fmt.Errorf("error watching trusted CA file: %w", err)
+			return nil, fmt.Errorf("error loading trusted CA file: %w", err)
+		}
+
+	case config.GetTrustedCertificateAuthoritySecret() != nil:
+		secretReader := k8s.NewSecretReader(p.k8sLoader.Get(),
+			config.GetTrustedCertificateAuthoritySecret().GetName(),
+			config.GetTrustedCertificateAuthoritySecret().GetNamespace(),
+			caSecretkey,
+		)
+		var err error
+		ca, err = p.caWatcher.WatchFile(
+			secretReader,
+			config.GetTrustedCertificateAuthorityRefreshInterval().AsDuration(),
+			func(data []byte) { p.updateCA(id, data) },
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error loading trusted CA secret: %w", err)
 		}
 
 	case config.GetSkipVerifyPeerCert() != nil:
-		tlsConfig.InsecureSkipVerify = BoolStrValue(config.GetSkipVerifyPeerCert())
+		tlsConfig.InsecureSkipVerify = internal.BoolStrValue(config.GetSkipVerifyPeerCert())
 
 	default:
 		// No CA or skip verification, return nil TLS config
@@ -110,7 +136,7 @@ func (p *tlsConfigPool) LoadTLSConfig(config TLSConfig) (*tls.Config, error) {
 
 	// Add the loaded CA to the TLS config
 	if len(ca) != 0 {
-		if BoolStrValue(config.GetSkipVerifyPeerCert()) {
+		if internal.BoolStrValue(config.GetSkipVerifyPeerCert()) {
 			log.Info("`skip_verify_peer_cert` is set to true but there's also a trusted certificate authority, ignoring `skip_verify_peer_cert`")
 		}
 
@@ -167,22 +193,24 @@ func (p *tlsConfigPool) updateCA(id string, caPem []byte) {
 	p.mu.Unlock()
 }
 
-// tlsConfigEncoder is the internal representation of a TLSConfig.
-// It handles some useful methods for the TLSConfig.
+// tlsConfigEncoder is the internal representation of a Config.
+// It handles some useful methods for the Config.
 type tlsConfigEncoder struct {
 	SkipVerifyPeerCert       bool   `json:"skipVerifyPeerCert,omitempty"`
 	TrustedCA                string `json:"trustedCertificateAuthority,omitempty"`
 	TrustedCAFile            string `json:"trustedCertificateAuthorityFile,omitempty"`
+	TrustedCASecret          string `json:"trustedCertificateAuthoritySecret,omitempty"`
 	TrustedCARefreshInterval string `json:"trustedCertificateAuthorityRefreshInterval,omitempty"`
 }
 
-// encodeConfig converts a TLSConfig to an tlsConfigEncoder.
-func encodeConfig(config TLSConfig) tlsConfigEncoder {
+// encodeConfig converts a Config to an tlsConfigEncoder.
+func encodeConfig(config Config) tlsConfigEncoder {
 	return tlsConfigEncoder{
 		TrustedCA:                config.GetTrustedCertificateAuthority(),
 		TrustedCAFile:            config.GetTrustedCertificateAuthorityFile(),
+		TrustedCASecret:          caSecretToString(config.GetTrustedCertificateAuthoritySecret()),
 		TrustedCARefreshInterval: config.GetTrustedCertificateAuthorityRefreshInterval().AsDuration().String(),
-		SkipVerifyPeerCert:       BoolStrValue(config.GetSkipVerifyPeerCert()),
+		SkipVerifyPeerCert:       internal.BoolStrValue(config.GetSkipVerifyPeerCert()),
 	}
 }
 
@@ -192,6 +220,7 @@ func (c tlsConfigEncoder) hash() string {
 	_, _ = buff.WriteString(fmt.Sprintf("%t", c.SkipVerifyPeerCert))
 	_, _ = buff.WriteString(c.TrustedCA)
 	_, _ = buff.WriteString(c.TrustedCAFile)
+	_, _ = buff.WriteString(c.TrustedCASecret)
 	_, _ = buff.WriteString(c.TrustedCARefreshInterval)
 	hash := fnv.New64a()
 	_, _ = hash.Write(buff.Bytes())
@@ -203,4 +232,11 @@ func (c tlsConfigEncoder) hash() string {
 func (c tlsConfigEncoder) JSON() string {
 	jsonBytes, _ := json.Marshal(c)
 	return string(jsonBytes)
+}
+
+func caSecretToString(secret *oidcv1.OIDCConfig_SecretReference) string {
+	if secret == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s/%s", secret.GetNamespace(), secret.GetName())
 }

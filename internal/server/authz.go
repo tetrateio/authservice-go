@@ -30,6 +30,7 @@ import (
 	"github.com/tetrateio/authservice-go/internal"
 	"github.com/tetrateio/authservice-go/internal/authz"
 	"github.com/tetrateio/authservice-go/internal/oidc"
+	"github.com/tetrateio/authservice-go/internal/tls"
 )
 
 // EnvoyXRequestID is the header name for the request id
@@ -59,13 +60,13 @@ var (
 type ExtAuthZFilter struct {
 	log      telemetry.Logger
 	cfg      *configv1.Config
-	tlsPool  internal.TLSConfigPool
+	tlsPool  tls.ConfigPool
 	jwks     oidc.JWKSProvider
 	sessions oidc.SessionStoreFactory
 }
 
 // NewExtAuthZFilter creates a new ExtAuthZFilter.
-func NewExtAuthZFilter(cfg *configv1.Config, tlsPool internal.TLSConfigPool, jwks oidc.JWKSProvider, sessions oidc.SessionStoreFactory) *ExtAuthZFilter {
+func NewExtAuthZFilter(cfg *configv1.Config, tlsPool tls.ConfigPool, jwks oidc.JWKSProvider, sessions oidc.SessionStoreFactory) *ExtAuthZFilter {
 	return &ExtAuthZFilter{
 		log:      internal.Logger(internal.Authz),
 		cfg:      cfg,

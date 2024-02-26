@@ -37,7 +37,7 @@ func (i *IstioSuite) TestIstioEnforcement() {
 		// Map the keycloak cluster DNS name to the local address where the service is exposed
 		e2e.WithCustomAddressMappings(map[string]string{
 			"http-echo.authservice.internal:443": "localhost:30000",
-			"keycloak.keycloak:8080":             "localhost:30001",
+			"keycloak.keycloak:443":              "localhost:30001",
 		}),
 	)
 	i.Require().NoError(err)

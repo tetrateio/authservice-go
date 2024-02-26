@@ -27,6 +27,7 @@ import (
 	"github.com/tetrateio/authservice-go/internal/k8s"
 	"github.com/tetrateio/authservice-go/internal/oidc"
 	"github.com/tetrateio/authservice-go/internal/server"
+	"github.com/tetrateio/authservice-go/internal/tls"
 )
 
 func main() {
@@ -34,13 +35,14 @@ func main() {
 		lifecycle   = run.NewLifecycle()
 		configFile  = &internal.LocalConfigFile{}
 		logging     = internal.NewLogSystem(log.New(), &configFile.Config)
-		tlsPool     = internal.NewTLSConfigPool(lifecycle.Context())
+		k8sClient   = k8s.NewClientLoader(&configFile.Config)
+		tlsPool     = tls.NewTLSConfigPool(lifecycle.Context(), k8sClient)
 		jwks        = oidc.NewJWKSProvider(tlsPool)
 		sessions    = oidc.NewSessionStoreFactory(&configFile.Config)
 		envoyAuthz  = server.NewExtAuthZFilter(&configFile.Config, tlsPool, jwks, sessions)
 		authzServer = server.New(&configFile.Config, envoyAuthz.Register)
 		healthz     = server.NewHealthServer(&configFile.Config)
-		secrets     = k8s.NewSecretLoader(&configFile.Config)
+		secrets     = k8s.NewSecretLoader(&configFile.Config, k8sClient)
 	)
 
 	configLog := run.NewPreRunner("config-log", func() error {
@@ -57,6 +59,7 @@ func main() {
 		lifecycle,         // manage the lifecycle of the run.Services
 		configFile,        // load the configuration
 		logging,           // set up the logging system
+		k8sClient,         // start the Kubernetes client
 		secrets,           // load the secrets and update the configuration
 		configLog,         // log the configuration
 		jwks,              // start the JWKS provider

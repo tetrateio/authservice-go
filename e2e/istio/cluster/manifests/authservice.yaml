@@ -146,7 +146,7 @@ data:
             {
               "oidc":
               {
-                "configuration_uri": "http://keycloak.keycloak:8080/realms/master/.well-known/openid-configuration",
+                "configuration_uri": "https://keycloak.keycloak/realms/master/.well-known/openid-configuration",
                 "callback_uri": "https://http-echo.authservice.internal/callback",
                 "client_id": "authservice",
                 "client_secret_ref": {
@@ -163,7 +163,12 @@ data:
                 },
                 "redis_session_store_config": {
                   "server_uri": "redis://redis.redis.svc.cluster.local:6379"
-                }
+                },
+                "trusted_certificate_authority_secret": {
+                  "namespace": "authservice",
+                  "name": "keycloak-ca"
+                },
+                "trusted_certificate_authority_refresh_interval": "60s"
               }
             }
           ]

@@ -45,17 +45,18 @@ var (
 // SecretLoader is a pre-runner that loads secrets from Kubernetes and updates
 // the configuration with the loaded data.
 type SecretLoader struct {
-	log       telemetry.Logger
-	cfg       *configv1.Config
-	k8sClient client.Client
+	log             telemetry.Logger
+	cfg             *configv1.Config
+	k8sClientLoader ClientLoader
 }
 
 // NewSecretLoader creates a new that loads secrets from Kubernetes and updates
 // // the configuration with the loaded data.
-func NewSecretLoader(cfg *configv1.Config) *SecretLoader {
+func NewSecretLoader(cfg *configv1.Config, loader ClientLoader) *SecretLoader {
 	return &SecretLoader{
-		log: internal.Logger(internal.Config),
-		cfg: cfg,
+		log:             internal.Logger(internal.Config),
+		cfg:             cfg,
+		k8sClientLoader: loader,
 	}
 }
 
@@ -64,7 +65,11 @@ func (s *SecretLoader) Name() string { return "Secret loader" }
 
 // PreRun processes all the OIDC configurations and loads all required secrets from Kubernetes.
 func (s *SecretLoader) PreRun() error {
-	var errs []error
+	var (
+		k8sClient = s.k8sClientLoader.Get()
+		errs      []error
+	)
+
 	for _, c := range s.cfg.Chains {
 		for _, f := range c.Filters {
 			oidcCfg, ok := f.Type.(*configv1.Filter_Oidc)
@@ -72,49 +77,76 @@ func (s *SecretLoader) PreRun() error {
 				continue
 			}
 
-			if s.k8sClient == nil {
-				var err error
-				s.k8sClient, err = getKubeClient()
-				if err != nil {
-					return fmt.Errorf("loading client secret from k8s: %w", err)
-				}
+			var (
+				name      = oidcCfg.Oidc.GetClientSecretRef().GetName()
+				namespace = oidcCfg.Oidc.GetClientSecretRef().GetNamespace()
+			)
+
+			s.log.Info("loading client-secret from secret",
+				"secret", fmt.Sprintf("%s/%s", name, namespace),
+				"client-id", oidcCfg.Oidc.GetClientId())
+
+			secretReader := NewSecretReader(k8sClient, name, namespace, clientSecretKey)
+			clientSecret, err := secretReader.Read()
+			if err != nil {
+				errs = append(errs, fmt.Errorf("error reading secret %s/%s: %w", name, namespace, err))
+				continue
 			}
 
-			errs = append(errs, s.loadClientSecretFromK8s(oidcCfg.Oidc))
+			// Update the configuration with the loaded client secret
+			oidcCfg.Oidc.ClientSecretConfig = &oidcv1.OIDCConfig_ClientSecret{
+				ClientSecret: string(clientSecret),
+			}
 		}
 	}
 
 	return errors.Join(errs...)
 }
 
-// loadClientSecretFromK8s retrieves the client secret from the referenced Kubernetes secret.
-func (s *SecretLoader) loadClientSecretFromK8s(cfg *oidcv1.OIDCConfig) error {
-	namespace := cfg.GetClientSecretRef().Namespace
+// SecretReader reads a secret from Kubernetes.
+type SecretReader struct {
+	log             telemetry.Logger
+	name, namespace string
+	key             string
+	k8sClient       client.Client
+}
+
+// NewSecretReader creates a new SecretReader.
+func NewSecretReader(k8sClient client.Client, name, namespace, key string) *SecretReader {
 	if namespace == "" {
 		namespace = defaultNamespace
 	}
-	secretName := types.NamespacedName{
-		Namespace: namespace,
-		Name:      cfg.GetClientSecretRef().GetName(),
+	return &SecretReader{
+		log:       internal.Logger(internal.Config),
+		name:      name,
+		namespace: namespace,
+		key:       key,
+		k8sClient: k8sClient,
 	}
+}
 
-	s.log.Info("loading client-secret from secret",
-		"secret", secretName.String(), "client-id", cfg.GetClientId())
+// ID implements internal.Reader
+func (s *SecretReader) ID() string {
+	return fmt.Sprintf("k8s-secret-(%s/%s)", s.namespace, s.name)
+}
+
+// Read implements internal.Reader
+func (s *SecretReader) Read() ([]byte, error) {
+	secretName := types.NamespacedName{
+		Namespace: s.namespace,
+		Name:      s.name,
+	}
 
 	secret := &corev1.Secret{}
 	if err := s.k8sClient.Get(context.Background(), secretName, secret); err != nil {
-		return fmt.Errorf("%w: %w", ErrGetSecret, err)
+		s.log.Error("error getting secret", err, "secret", secretName.String())
+		return nil, fmt.Errorf("%w: %w", ErrGetSecret, err)
 	}
 
-	clientSecretBytes, ok := secret.Data[clientSecretKey]
-	if !ok || len(clientSecretBytes) == 0 {
-		return fmt.Errorf("%w: %s", ErrNoSecretData, secretName.String())
+	data := secret.Data[s.key]
+	if len(data) == 0 {
+		s.log.Error("key not found in secret", ErrNoSecretData, "secret", secretName.String(), "key", s.key)
+		return nil, fmt.Errorf("%w: %s", ErrNoSecretData, secretName.String())
 	}
-
-	// Update the configuration with the loaded client secret
-	cfg.ClientSecretConfig = &oidcv1.OIDCConfig_ClientSecret{
-		ClientSecret: string(clientSecretBytes),
-	}
-
-	return nil
+	return data, nil
 }

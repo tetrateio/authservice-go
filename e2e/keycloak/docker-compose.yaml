@@ -89,7 +89,7 @@ services:
       KEYCLOAK_ADMIN_PASSWORD: admin
     ports:
       - "9443:9443"
-    command: start-dev  --https-port=9443 --https-certificate-file=/opt/keycloak/certs/host.docker.internal.crt --https-certificate-key-file=/opt/keycloak/certs/host.docker.internal.key
+    command: start-dev --https-port=9443 --https-certificate-file=/opt/keycloak/certs/host.docker.internal.crt --https-certificate-key-file=/opt/keycloak/certs/host.docker.internal.key
     volumes:
       - type: bind
         source: certs

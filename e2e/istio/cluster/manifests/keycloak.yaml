@@ -30,7 +30,11 @@ spec:
     - port: 8080
       targetPort: 8080
       name: http-keycloak
+      protocol: TCP
+    - port: 443
+      targetPort: 9443
       nodePort: 30001  # Expose it directly to the e2e tests
+      name: https
       protocol: TCP
   selector:
     app: keycloak
@@ -66,10 +70,13 @@ spec:
           image: quay.io/keycloak/keycloak:23.0.6
           imagePullPolicy: IfNotPresent
           args:
-            - "start-dev"
+            - start-dev
+            - --https-port=9443
+            - --https-certificate-file=/opt/keycloak/certs/tls.crt
+            - --https-certificate-key-file=/opt/keycloak/certs/tls.key
           ports:
             - name: keycloak
-              containerPort: 8080
+              containerPort: 9443
               protocol: TCP
           env:
             - name: KEYCLOAK_ADMIN
@@ -81,6 +88,13 @@ spec:
             periodSeconds: 5
             tcpSocket:
               port: 8080
+          volumeMounts:
+            - mountPath: /opt/keycloak/certs
+              name: keycloak-certs
+      volumes:
+        - name: keycloak-certs
+          secret:
+            secretName: keycloak-certs
 ---
 apiVersion: batch/v1
 kind: Job

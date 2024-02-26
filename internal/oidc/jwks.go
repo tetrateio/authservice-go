@@ -27,6 +27,7 @@ import (
 
 	oidcv1 "github.com/tetrateio/authservice-go/config/gen/go/v1/oidc"
 	"github.com/tetrateio/authservice-go/internal"
+	"github.com/tetrateio/authservice-go/internal/tls"
 )
 
 var (
@@ -52,11 +53,11 @@ type DefaultJWKSProvider struct {
 	log      telemetry.Logger
 	cache    *jwk.AutoRefresh
 	shutdown context.CancelFunc
-	tlsPool  internal.TLSConfigPool
+	tlsPool  tls.ConfigPool
 }
 
 // NewJWKSProvider returns a new JWKSProvider.
-func NewJWKSProvider(tlsPool internal.TLSConfigPool) *DefaultJWKSProvider {
+func NewJWKSProvider(tlsPool tls.ConfigPool) *DefaultJWKSProvider {
 	return &DefaultJWKSProvider{
 		log:     internal.Logger(internal.JWKS),
 		tlsPool: tlsPool,

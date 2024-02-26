@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package internal
+package tls
 
 import (
 	"context"
@@ -25,8 +25,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/structpb"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/tetrateio/authservice-go/config/gen/go/v1/oidc"
+	"github.com/tetrateio/authservice-go/internal/k8s"
 )
 
 const (
@@ -104,9 +109,25 @@ func TestLoadTLSConfig(t *testing.T) {
 	require.NoError(t, os.WriteFile(validFile, []byte(firstCAPem), 0644))
 	require.NoError(t, os.WriteFile(invalidFile, []byte(invalidCAPem), 0644))
 
+	var (
+		validSecretName   = "test-secret"
+		invalidSecretName = "invalid-secret"
+
+		validSecret = &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: validSecretName},
+			Data:       map[string][]byte{"ca.crt": []byte(firstCAPem)},
+		}
+		invalidSecret = &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: invalidSecretName},
+			Data:       map[string][]byte{"no-valid-key": []byte(invalidCAPem)},
+		}
+	)
+
+	kubeClient := fake.NewClientBuilder().WithObjects(validSecret, invalidSecret).Build()
+
 	tests := []struct {
 		name     string
-		config   TLSConfig
+		config   Config
 		wantTLS  bool
 		wantSkip bool
 		wantPool bool
@@ -160,12 +181,46 @@ func TestLoadTLSConfig(t *testing.T) {
 			wantSkip: false, // skip verify is ignored because there's a trusted CA
 			wantPool: true,
 		},
+		{
+			name: "valid trusted CA secret config",
+			config: &oidc.OIDCConfig{
+				TrustedCaConfig: &oidc.OIDCConfig_TrustedCertificateAuthoritySecret{
+					TrustedCertificateAuthoritySecret: &oidc.OIDCConfig_SecretReference{
+						Name: validSecretName,
+					},
+				},
+			},
+			wantTLS:  true,
+			wantPool: true,
+		},
+		{
+			name: "invalid trusted CA secret config",
+			config: &oidc.OIDCConfig{
+				TrustedCaConfig: &oidc.OIDCConfig_TrustedCertificateAuthoritySecret{
+					TrustedCertificateAuthoritySecret: &oidc.OIDCConfig_SecretReference{
+						Name: invalidSecretName,
+					},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "no existing secret trusted CA secret config",
+			config: &oidc.OIDCConfig{
+				TrustedCaConfig: &oidc.OIDCConfig_TrustedCertificateAuthoritySecret{
+					TrustedCertificateAuthoritySecret: &oidc.OIDCConfig_SecretReference{
+						Name: validSecretName, Namespace: "non-existing", // non-existing namespace causes the secret to not exist
+					},
+				},
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
-			pool := NewTLSConfigPool(ctx)
+			pool := NewTLSConfigPool(ctx, &mockK8sLoader{Client: kubeClient})
 			t.Cleanup(cancel)
 
 			got, err := pool.LoadTLSConfig(tc.config)
@@ -192,8 +247,10 @@ func TestLoadTLSConfig(t *testing.T) {
 
 func TestTLSConfigPoolUpdates(t *testing.T) {
 	tmpDir := t.TempDir()
-	var caFile1 = tmpDir + "/ca1.pem"
-	require.NoError(t, os.WriteFile(caFile1, []byte(firstCAPem), 0644))
+	var (
+		caFile       = tmpDir + "/ca1.pem"
+		caSecretName = "ca-secret"
+	)
 
 	block, _ := pem.Decode([]byte(firstCertPem))
 	cert1, err := x509.ParseCertificate(block.Bytes)
@@ -204,7 +261,8 @@ func TestTLSConfigPoolUpdates(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	pool := NewTLSConfigPool(ctx)
+	k8sClient := fake.NewClientBuilder().Build()
+	pool := NewTLSConfigPool(ctx, &mockK8sLoader{Client: k8sClient})
 	t.Cleanup(cancel)
 
 	const (
@@ -212,71 +270,132 @@ func TestTLSConfigPoolUpdates(t *testing.T) {
 		intervalAndHalf = interval + interval/2
 	)
 
-	config := &oidc.OIDCConfig{
-		TrustedCaConfig: &oidc.OIDCConfig_TrustedCertificateAuthorityFile{TrustedCertificateAuthorityFile: caFile1},
-		TrustedCertificateAuthorityRefreshInterval: durationpb.New(interval),
+	cases := []struct {
+		name       string
+		config     *oidc.OIDCConfig
+		createData func(data string) error
+		updateData func(data string) error
+		removeData func() error
+	}{
+		{
+			name: "trusted CA file",
+			config: &oidc.OIDCConfig{
+				TrustedCaConfig: &oidc.OIDCConfig_TrustedCertificateAuthorityFile{TrustedCertificateAuthorityFile: caFile},
+				TrustedCertificateAuthorityRefreshInterval: durationpb.New(interval),
+			},
+			createData: func(data string) error {
+				return os.WriteFile(caFile, []byte(data), 0644)
+			},
+			updateData: func(data string) error {
+				return os.WriteFile(caFile, []byte(data), 0644)
+			},
+			removeData: func() error {
+				return os.Remove(caFile)
+			},
+		},
+		{
+			name: "trusted CA secret",
+			config: &oidc.OIDCConfig{
+				TrustedCaConfig: &oidc.OIDCConfig_TrustedCertificateAuthoritySecret{
+					TrustedCertificateAuthoritySecret: &oidc.OIDCConfig_SecretReference{
+						Name: caSecretName, Namespace: "the-namespace",
+					},
+				},
+				TrustedCertificateAuthorityRefreshInterval: durationpb.New(interval),
+			},
+			createData: func(data string) error {
+				return k8sClient.Create(context.Background(),
+					&corev1.Secret{
+						ObjectMeta: metav1.ObjectMeta{Namespace: "the-namespace", Name: caSecretName},
+						Data:       map[string][]byte{"ca.crt": []byte(firstCAPem)},
+					})
+			},
+			updateData: func(data string) error {
+				secret := &corev1.Secret{}
+				if err := k8sClient.Get(context.Background(), client.ObjectKey{Namespace: "the-namespace", Name: caSecretName}, secret); err != nil {
+					return err
+				}
+				secret.Data["ca.crt"] = []byte(data)
+				return k8sClient.Update(context.Background(), secret)
+			},
+			removeData: func() error {
+				secret := &corev1.Secret{}
+				err := k8sClient.Get(context.Background(), client.ObjectKey{Namespace: "the-namespace", Name: caSecretName}, secret)
+				if err != nil {
+					return err
+				}
+				return k8sClient.Delete(context.Background(), secret)
+			},
+		},
 	}
 
-	// load the TLS config
-	gotTLS, err := pool.LoadTLSConfig(config)
-	require.NoError(t, err)
-	require.NotNil(t, gotTLS)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// setup the initial data
+			require.NoError(t, tc.createData(firstCAPem))
 
-	// verify the got TLS config is valid
-	_, err = cert1.Verify(x509.VerifyOptions{Roots: gotTLS.RootCAs, DNSName: firstCertDNSName})
-	require.NoError(t, err)
+			// load the TLS config
+			gotTLS, err := pool.LoadTLSConfig(tc.config)
+			require.NoError(t, err)
+			require.NotNil(t, gotTLS)
 
-	// update the CA file content
-	require.NoError(t, os.WriteFile(caFile1, []byte(secondCAPem), 0644))
-	time.Sleep(intervalAndHalf)
+			// verify the got TLS config is valid
+			_, err = cert1.Verify(x509.VerifyOptions{Roots: gotTLS.RootCAs, DNSName: firstCertDNSName})
+			require.NoError(t, err)
 
-	// load the TLS config again
-	gotTLS, err = pool.LoadTLSConfig(config)
-	require.NoError(t, err)
+			// update the CA file content
+			require.NoError(t, tc.updateData(secondCAPem))
+			time.Sleep(intervalAndHalf)
 
-	// verify the got TLS config is not valid anymore for the old CA,
-	// as we updated it with CA only valid for cert2.
-	_, err = cert1.Verify(x509.VerifyOptions{Roots: gotTLS.RootCAs, DNSName: firstCertDNSName})
-	require.Error(t, err)
+			// load the TLS config again
+			gotTLS, err = pool.LoadTLSConfig(tc.config)
+			require.NoError(t, err)
 
-	// verify the got TLS config is valid for the new CA
-	_, err = cert2.Verify(x509.VerifyOptions{Roots: gotTLS.RootCAs, DNSName: secondCertDNSName})
-	require.NoError(t, err)
+			// verify the got TLS config is not valid anymore for the old CA,
+			// as we updated it with CA only valid for cert2.
+			_, err = cert1.Verify(x509.VerifyOptions{Roots: gotTLS.RootCAs, DNSName: firstCertDNSName})
+			require.Error(t, err)
 
-	// update the CA file content to be invalid
-	require.NoError(t, os.WriteFile(caFile1, []byte(invalidCAPem), 0644))
-	time.Sleep(intervalAndHalf)
+			// verify the got TLS config is valid for the new CA
+			_, err = cert2.Verify(x509.VerifyOptions{Roots: gotTLS.RootCAs, DNSName: secondCertDNSName})
+			require.NoError(t, err)
 
-	// load the TLS config again
-	gotTLS, err = pool.LoadTLSConfig(config)
-	require.NoError(t, err)
+			// update the CA file content to be invalid
+			require.NoError(t, tc.updateData(invalidCAPem))
+			time.Sleep(intervalAndHalf)
 
-	// verify the config is not updated, so the old TLS config is still valid
-	_, err = cert2.Verify(x509.VerifyOptions{Roots: gotTLS.RootCAs, DNSName: secondCertDNSName})
-	require.NoError(t, err)
+			// load the TLS config again
+			gotTLS, err = pool.LoadTLSConfig(tc.config)
+			require.NoError(t, err)
 
-	// remove the CA file
-	require.NoError(t, os.Remove(caFile1))
-	time.Sleep(intervalAndHalf)
+			// verify the config is not updated, so the old TLS config is still valid
+			_, err = cert2.Verify(x509.VerifyOptions{Roots: gotTLS.RootCAs, DNSName: secondCertDNSName})
+			require.NoError(t, err)
 
-	// load the TLS config again
-	gotTLS, err = pool.LoadTLSConfig(config)
-	require.NoError(t, err)
+			// remove the CA file
+			require.NoError(t, tc.removeData())
+			time.Sleep(intervalAndHalf)
 
-	// verify the config is not modified, so the old TLS config is still valid
-	_, err = cert2.Verify(x509.VerifyOptions{Roots: gotTLS.RootCAs, DNSName: secondCertDNSName})
-	require.NoError(t, err)
+			// load the TLS config again
+			gotTLS, err = pool.LoadTLSConfig(tc.config)
+			require.NoError(t, err)
 
-	// update the CA file content to be valid again and verify the new CA is loaded
-	require.NoError(t, os.WriteFile(caFile1, []byte(firstCAPem), 0644))
-	time.Sleep(intervalAndHalf)
+			// verify the config is not modified, so the old TLS config is still valid
+			_, err = cert2.Verify(x509.VerifyOptions{Roots: gotTLS.RootCAs, DNSName: secondCertDNSName})
+			require.NoError(t, err)
 
-	// load the TLS config again
-	gotTLS, err = pool.LoadTLSConfig(config)
-	require.NoError(t, err)
+			// update the CA file content to be valid again and verify the new CA is loaded
+			require.NoError(t, tc.createData(firstCAPem))
+			time.Sleep(intervalAndHalf)
 
-	_, err = cert1.Verify(x509.VerifyOptions{Roots: gotTLS.RootCAs, DNSName: firstCertDNSName})
-	require.NoError(t, err)
+			// load the TLS config again
+			gotTLS, err = pool.LoadTLSConfig(tc.config)
+			require.NoError(t, err)
+
+			_, err = cert1.Verify(x509.VerifyOptions{Roots: gotTLS.RootCAs, DNSName: firstCertDNSName})
+			require.NoError(t, err)
+		})
+	}
 }
 
 func TestTLSConfigPoolWithMultipleConfigs(t *testing.T) {
@@ -297,7 +416,7 @@ func TestTLSConfigPoolWithMultipleConfigs(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	pool := NewTLSConfigPool(ctx)
+	pool := NewTLSConfigPool(ctx, &mockK8sLoader{})
 	t.Cleanup(cancel)
 
 	const (
@@ -351,3 +470,12 @@ func TestTLSConfigPoolWithMultipleConfigs(t *testing.T) {
 	_, err = cert1.Verify(x509.VerifyOptions{Roots: gotTLS1.RootCAs, DNSName: firstCertDNSName})
 	require.NoError(t, err)
 }
+
+var _ k8s.ClientLoader = &mockK8sLoader{}
+
+type mockK8sLoader struct {
+	client.Client
+}
+
+func (m mockK8sLoader) Name() string       { return "mock-k8s-loader" }
+func (m mockK8sLoader) Get() client.Client { return m.Client }

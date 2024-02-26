@@ -17,6 +17,7 @@ package istio
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -24,7 +25,10 @@ import (
 	"github.com/stretchr/testify/suite"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	applycorev1 "k8s.io/client-go/applyconfigurations/core/v1"
+	applymetav1 "k8s.io/client-go/applyconfigurations/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	v1 "k8s.io/client-go/kubernetes/typed/core/v1"
 
 	"github.com/tetrateio/authservice-go/e2e"
 )
@@ -80,6 +84,8 @@ func (i *IstioSuite) SetupSuite() {
 		i.installistio()
 	}
 
+	i.installKeycloakCerts()
+
 	i.T().Log("deploying the test services...")
 	for _, f := range testManifests {
 		i.MustApply(context.Background(), manifestsDir+"/"+f)
@@ -103,4 +109,58 @@ func (i *IstioSuite) installistio() {
 func (i *IstioSuite) istioInstalled(client kubernetes.Interface) bool {
 	_, err := client.CoreV1().Services("istio-system").Get(context.Background(), "istiod", metav1.GetOptions{})
 	return err == nil
+}
+
+// Install the Keycloak CA certificate in the cluster
+func (i *IstioSuite) installKeycloakCerts() {
+	// load the Keycloak certificates
+	ca, err := os.ReadFile("certs/ca.crt")
+	i.Require().NoError(err)
+	cert, err := os.ReadFile("certs/keycloak.keycloak.crt")
+	i.Require().NoError(err)
+	key, err := os.ReadFile("certs/keycloak.keycloak.key")
+	i.Require().NoError(err)
+
+	// Create the secret with the Keycloak certificates in the "keycloak" namespace
+	i.applyNamespace("keycloak")
+	i.applySecret("keycloak-certs", "keycloak", corev1.SecretTypeTLS, map[string][]byte{"ca.crt": ca, "tls.crt": cert, "tls.key": key})
+
+	// Create the secret with the Keycloak CA in the "authservice" namespace
+	i.applyNamespace("authservice")
+	i.applySecret("keycloak-ca", "authservice", corev1.SecretTypeOpaque, map[string][]byte{"ca.crt": ca})
+}
+
+func (i *IstioSuite) applyNamespace(name string) {
+	k8sClient, err := v1.NewForConfig(i.Kubeconfig)
+	i.Require().NoError(err)
+
+	var (
+		namespaceKind = "Namespace"
+		namespaceAPI  = "v1"
+	)
+
+	namespace := &applycorev1.NamespaceApplyConfiguration{
+		TypeMetaApplyConfiguration:   applymetav1.TypeMetaApplyConfiguration{Kind: &namespaceKind, APIVersion: &namespaceAPI},
+		ObjectMetaApplyConfiguration: &applymetav1.ObjectMetaApplyConfiguration{Name: &name},
+	}
+	_, err = k8sClient.Namespaces().Apply(context.Background(), namespace, metav1.ApplyOptions{FieldManager: "e2e"})
+	i.Require().NoError(err)
+}
+
+func (i *IstioSuite) applySecret(name, namespace string, secretType corev1.SecretType, data map[string][]byte) {
+	k8sClient, err := v1.NewForConfig(i.Kubeconfig)
+	i.Require().NoError(err)
+
+	var (
+		secretKind = "Secret"
+		secretAPI  = "v1"
+	)
+	secret := &applycorev1.SecretApplyConfiguration{
+		TypeMetaApplyConfiguration:   applymetav1.TypeMetaApplyConfiguration{Kind: &secretKind, APIVersion: &secretAPI},
+		ObjectMetaApplyConfiguration: &applymetav1.ObjectMetaApplyConfiguration{Name: &name, Namespace: &namespace},
+		Data:                         data,
+		Type:                         &secretType,
+	}
+	_, err = k8sClient.Secrets(namespace).Apply(context.Background(), secret, metav1.ApplyOptions{FieldManager: "e2e"})
+	i.Require().NoError(err)
 }

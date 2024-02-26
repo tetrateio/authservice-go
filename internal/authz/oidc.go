@@ -36,6 +36,7 @@ import (
 	"github.com/tetrateio/authservice-go/internal"
 	inthttp "github.com/tetrateio/authservice-go/internal/http"
 	"github.com/tetrateio/authservice-go/internal/oidc"
+	"github.com/tetrateio/authservice-go/internal/tls"
 )
 
 var (
@@ -53,7 +54,7 @@ var (
 type oidcHandler struct {
 	log        telemetry.Logger
 	config     *oidcv1.OIDCConfig
-	tlsPool    internal.TLSConfigPool
+	tlsPool    tls.ConfigPool
 	jwks       oidc.JWKSProvider
 	sessions   oidc.SessionStoreFactory
 	sessionGen oidc.SessionGenerator
@@ -62,7 +63,7 @@ type oidcHandler struct {
 }
 
 // NewOIDCHandler creates a new OIDC implementation of the Handler interface.
-func NewOIDCHandler(cfg *oidcv1.OIDCConfig, tlsPool internal.TLSConfigPool, jwks oidc.JWKSProvider,
+func NewOIDCHandler(cfg *oidcv1.OIDCConfig, tlsPool tls.ConfigPool, jwks oidc.JWKSProvider,
 	sessions oidc.SessionStoreFactory, clock oidc.Clock, sessionGen oidc.SessionGenerator) (Handler, error) {
 
 	client, err := getHTTPClient(cfg, tlsPool)
@@ -86,7 +87,7 @@ func NewOIDCHandler(cfg *oidcv1.OIDCConfig, tlsPool internal.TLSConfigPool, jwks
 	}, nil
 }
 
-func getHTTPClient(cfg *oidcv1.OIDCConfig, tlsPool internal.TLSConfigPool) (*http.Client, error) {
+func getHTTPClient(cfg *oidcv1.OIDCConfig, tlsPool tls.ConfigPool) (*http.Client, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 
 	var err error
