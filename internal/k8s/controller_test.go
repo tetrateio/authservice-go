@@ -65,6 +65,8 @@ func TestOIDCProcessWithKubernetesSecret(t *testing.T) {
 	controller.restConf = conf
 	ctx, cancel := context.WithCancel(ctrl.SetupSignalHandler())
 	go func() {
+		err = controller.PreRun()
+		require.NoError(t, err)
 		err = controller.ServeContext(ctx)
 		require.NoError(t, err)
 	}()

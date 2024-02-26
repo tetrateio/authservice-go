@@ -90,10 +90,10 @@ test:  ## Run all the tests
 
 COVERAGE_OPTS ?=
 .PHONY: coverage
-coverage: setup-envtest ## Creates coverage report for all projects
+coverage: ## Creates coverage report for all projects
 	@echo "Running test coverage"
 	@mkdir -p $(OUTDIR)/$@
-	KUBEBUILDER_ASSETS="$(shell setup-envtest use -p path)" \
+	KUBEBUILDER_ASSETS="$(shell go run $(ENVTEST) use -p path)" \
 		go test $(COVERAGE_OPTS) \
 			--tags=integration \
 			-timeout 30s \
@@ -101,10 +101,6 @@ coverage: setup-envtest ## Creates coverage report for all projects
 			-covermode atomic \
 			$(TEST_PKGS)
 	@go tool cover -html="$(OUTDIR)/$@/coverage.out" -o "$(OUTDIR)/$@/coverage.html"
-
-.PHONY: setup-envtest
-setup-envtest:  ## Setup the envtest for the integration tests
-	@go install $(ENVTEST)
 
 .PHONY: e2e
 e2e:  ## Runt he e2e tests
