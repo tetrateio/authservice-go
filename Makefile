@@ -94,7 +94,7 @@ COVERAGE_OPTS ?=
 coverage: ## Creates coverage report for all projects
 	@echo "Running test coverage"
 	@mkdir -p $(OUTDIR)/$@
-	KUBEBUILDER_ASSETS="$(shell go run $(ENVTEST) use -p path)" \
+	@KUBEBUILDER_ASSETS="$(shell go run $(ENVTEST) use -p path)" \
 		go test $(COVERAGE_OPTS) \
 			-timeout 30s \
 			-coverprofile $(OUTDIR)/$@/coverage.out \
