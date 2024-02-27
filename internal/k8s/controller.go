@@ -21,10 +21,8 @@ import (
 
 	"github.com/tetratelabs/run"
 	"github.com/tetratelabs/telemetry"
-	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -48,44 +46,40 @@ var (
 
 // SecretController watches secrets for updates and updates the configuration with the loaded data.
 type SecretController struct {
-	log           telemetry.Logger
-	effectiveConf *configv1.Config
-	originalConf  *configv1.Config
-	secrets       sets.Set[string]
-	restConf      *rest.Config
-	k8sClient     client.Client
+	log       telemetry.Logger
+	config    *configv1.Config
+	secrets   map[string][]*oidcv1.OIDCConfig
+	restConf  *rest.Config
+	k8sClient client.Client
 }
 
 // NewSecretController creates a new k8s Controller that loads secrets from
 // Kubernetes and updates the configuration with the loaded data.
 func NewSecretController(cfg *configv1.Config) *SecretController {
 	return &SecretController{
-		log:           internal.Logger(internal.Config),
-		effectiveConf: cfg,
+		log:    internal.Logger(internal.Config),
+		config: cfg,
 	}
 }
 
 // PreRun saves the original configuration in PreRun phase because the
 // configuration is loaded from the file in the Config Validate phase.
 func (s *SecretController) PreRun() error {
-	// Clone the configuration as we need to use the original client secret
-	// configuration when reconciling the secret updates.
-	s.originalConf = proto.Clone(s.effectiveConf).(*configv1.Config)
-
 	// Collect the k8s secrets that are used in the configuration
-	s.secrets = sets.New[string]()
-	for _, c := range s.originalConf.Chains {
+	s.secrets = make(map[string][]*oidcv1.OIDCConfig)
+	for _, c := range s.config.Chains {
 		for _, f := range c.Filters {
 			oidcCfg, ok := f.Type.(*configv1.Filter_Oidc)
 			if !ok || oidcCfg.Oidc.GetClientSecretRef().GetName() == "" {
 				continue
 			}
-			s.secrets.Insert(namespacedName(oidcCfg.Oidc.GetClientSecretRef()).String())
+			key := namespacedName(oidcCfg.Oidc.GetClientSecretRef()).String()
+			s.secrets[key] = append(s.secrets[key], oidcCfg.Oidc)
 		}
 	}
 
 	// If there are no secrets to watch, we can skip starting the controller manager
-	if s.secrets.Len() == 0 {
+	if len(s.secrets) == 0 {
 		return nil
 	}
 
@@ -119,7 +113,7 @@ func (s *SecretController) Name() string { return "Secret controller" }
 // only need it to watch secrets and update the configuration.
 func (s *SecretController) ServeContext(ctx context.Context) error {
 	// If there are no secrets to watch, we can skip starting the controller manager
-	if s.secrets.Len() == 0 {
+	if len(s.secrets) == 0 {
 		<-ctx.Done()
 		return nil
 	}
@@ -147,8 +141,10 @@ func (s *SecretController) ServeContext(ctx context.Context) error {
 func (s *SecretController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	changedSecret := req.NamespacedName.String()
 
+	oidcConfigs, exist := s.secrets[changedSecret]
+
 	// If the secret is not used in the configuration, we can ignore it
-	if !s.secrets.Has(changedSecret) {
+	if !exist {
 		return ctrl.Result{}, nil
 	}
 
@@ -170,27 +166,13 @@ func (s *SecretController) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, nil
 	}
 
-	for i, c := range s.originalConf.Chains {
-		for j, f := range c.Filters {
-			oidcCfg, ok := f.Type.(*configv1.Filter_Oidc)
-			if !ok || oidcCfg.Oidc.GetClientSecretRef().GetName() == "" {
-				continue
-			}
-			namespace := oidcCfg.Oidc.GetClientSecretRef().Namespace
-			if namespace == "" {
-				namespace = defaultNamespace
-			}
-			clientSecret := namespacedName(oidcCfg.Oidc.GetClientSecretRef()).String()
+	for _, oidcConfig := range oidcConfigs {
+		s.log.Info("updating client-secret data from secret",
+			"secret", secret, "client-id", oidcConfig.GetClientId())
 
-			if clientSecret == changedSecret {
-				s.log.Info("updating client-secret data from secret",
-					"secret", clientSecret, "client-id", oidcCfg.Oidc.GetClientId())
-
-				// Update the configuration with the loaded client secret
-				s.effectiveConf.Chains[i].Filters[j].GetOidc().ClientSecretConfig = &oidcv1.OIDCConfig_ClientSecret{
-					ClientSecret: string(clientSecretBytes),
-				}
-			}
+		// Update the configuration with the loaded client secret
+		oidcConfig.ClientSecretConfig = &oidcv1.OIDCConfig_ClientSecret{
+			ClientSecret: string(clientSecretBytes),
 		}
 	}
 

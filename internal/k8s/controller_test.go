@@ -56,7 +56,7 @@ func TestOIDCProcessWithKubernetesSecret(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// load test data
 			originalConf := loadTestConf(t, fmt.Sprintf("testdata/%s-in.json", tt.testFile))
-			effectiveConf := loadTestConf(t, fmt.Sprintf("testdata/%s-out.json", tt.testFile))
+			expectedConf := loadTestConf(t, fmt.Sprintf("testdata/%s-out.json", tt.testFile))
 
 			// start kube test env
 			testEnv, conf := startEnv(t)
@@ -83,10 +83,10 @@ func TestOIDCProcessWithKubernetesSecret(t *testing.T) {
 				secrets = createSecretsForTest(t, controller, ctx)
 			}
 
-			// if the original configuration is already the same as the effective
+			// if the original configuration is already the same as the expected
 			// configuration, we need to call reconcile manually to make sure the
 			// reconciliation happens before the assertion.
-			if proto.Equal(originalConf, effectiveConf) {
+			if proto.Equal(originalConf, expectedConf) {
 				for _, secret := range secrets {
 					_, _ = controller.Reconcile(ctx, ctrl.Request{
 						NamespacedName: types.NamespacedName{
@@ -99,7 +99,7 @@ func TestOIDCProcessWithKubernetesSecret(t *testing.T) {
 
 			// wait for the secret controller to update the configuration
 			require.Eventually(t, func() bool {
-				return proto.Equal(originalConf, effectiveConf)
+				return proto.Equal(originalConf, expectedConf)
 			}, defaultWait, defaultTick)
 		})
 	}
