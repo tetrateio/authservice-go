@@ -61,11 +61,13 @@ func TestController(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	t.Run("controller ", func(t *testing.T) {
+	t.Run("controller is setup at preRun", func(t *testing.T) {
 		require.Eventually(t, func() bool {
 			return controller.k8sClient != nil
-		}, defaultWait, defaultTick, "Controller manager is not ready")
+		}, defaultWait, defaultTick, "Controller manager is not setup")
+	})
 
+	t.Run("controller is ready", func(t *testing.T) {
 		require.Eventually(t, func() bool {
 			err := controller.k8sClient.Create(context.Background(), &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{

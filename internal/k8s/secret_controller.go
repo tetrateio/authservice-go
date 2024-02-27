@@ -50,6 +50,7 @@ type SecretController struct {
 	config    *configv1.Config
 	secrets   map[string][]*oidcv1.OIDCConfig
 	restConf  *rest.Config
+	manager   manager.Manager
 	k8sClient client.Client
 	namespace string
 }
@@ -63,10 +64,16 @@ func NewSecretController(cfg *configv1.Config) *SecretController {
 	}
 }
 
+// Name implements run.PreRunner
+func (s *SecretController) Name() string { return "Secret controller" }
+
 // PreRun saves the original configuration in PreRun phase because the
 // configuration is loaded from the file in the Config Validate phase.
 func (s *SecretController) PreRun() error {
-	var needWatchSecrets = false
+	var (
+		needWatchSecrets = false
+		err              error
+	)
 
 	// Check if there are any k8s secrets to watch
 	for _, c := range s.config.Chains {
@@ -118,12 +125,42 @@ func (s *SecretController) PreRun() error {
 		}
 	}
 
+	// Load the k8s configuration from in-cluster environment
 	if s.restConf == nil {
-		conf, err := config.GetConfig()
+		s.restConf, err = config.GetConfig()
 		if err != nil {
 			return fmt.Errorf("%w: %w", ErrLoadingConfig, err)
 		}
-		s.restConf = conf
+	}
+
+	// The controller manager is encapsulated in the secret controller because we
+	// only need it to watch secrets and update the configuration.
+	//TODO: Add manager options, like metrics, healthz, leader election, etc.
+	s.manager, err = ctrl.NewManager(s.restConf, manager.Options{})
+	s.k8sClient = s.manager.GetClient()
+	if err != nil {
+		return fmt.Errorf("error creating controller manager: %w", err)
+	}
+
+	if err = ctrl.NewControllerManagedBy(s.manager).
+		For(&corev1.Secret{}).
+		Complete(s); err != nil {
+		return fmt.Errorf("error creating secret controller:%w", err)
+	}
+
+	return nil
+}
+
+// ServeContext starts the controller manager and watches secrets for updates.
+func (s *SecretController) ServeContext(ctx context.Context) error {
+	// If there are no secrets to watch, we can skip starting the controller manager
+	if len(s.secrets) == 0 {
+		<-ctx.Done()
+		return nil
+	}
+
+	if err := s.manager.Start(ctx); err != nil {
+		return fmt.Errorf("error starting controller manager:%w", err)
 	}
 
 	return nil
@@ -134,39 +171,6 @@ func secretNamespacedName(secretRef *oidcv1.OIDCConfig_SecretReference, currentN
 		Namespace: currentNamespace,
 		Name:      secretRef.GetName(),
 	}
-}
-
-// Name implements run.PreRunner
-func (s *SecretController) Name() string { return "Secret controller" }
-
-// ServeContext starts the controller manager and watches secrets for updates.
-// The controller manager is encapsulated in the secret controller because we
-// only need it to watch secrets and update the configuration.
-func (s *SecretController) ServeContext(ctx context.Context) error {
-	// If there are no secrets to watch, we can skip starting the controller manager
-	if len(s.secrets) == 0 {
-		<-ctx.Done()
-		return nil
-	}
-
-	//TODO: Add manager options, like metrics, healthz, leader election, etc.
-	mgr, err := ctrl.NewManager(s.restConf, manager.Options{})
-	s.k8sClient = mgr.GetClient()
-	if err != nil {
-		return fmt.Errorf("error creating controller manager: %w", err)
-	}
-
-	if err = ctrl.NewControllerManagedBy(mgr).
-		For(&corev1.Secret{}).
-		Complete(s); err != nil {
-		return fmt.Errorf("error creating secret controller:%w", err)
-	}
-
-	if err = mgr.Start(ctx); err != nil {
-		return fmt.Errorf("error starting controller manager:%w", err)
-	}
-
-	return nil
 }
 
 func (s *SecretController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {

@@ -57,7 +57,6 @@ func TestOIDCProcessWithKubernetesSecret(t *testing.T) {
 			secrets := secretsForTest()
 			kubeClient := fake.NewClientBuilder().WithLists(secrets).Build()
 			controller := NewSecretController(originalConf)
-			controller.k8sClient = kubeClient
 			controller.namespace = "default"
 
 			// pre-run the controller
@@ -65,6 +64,8 @@ func TestOIDCProcessWithKubernetesSecret(t *testing.T) {
 			if tt.err != "" {
 				require.EqualError(t, err, tt.err)
 			}
+			// replace the k8s client with the fake client for testing
+			controller.k8sClient = kubeClient
 
 			// reconcile the secrets
 			for _, secret := range secrets.Items {
