@@ -174,7 +174,7 @@ func (s *SecretController) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			}.String()
 
 			if secretName == changedSecret {
-				s.log.Info("updating client-secret from secret",
+				s.log.Info("updating client-secret data from secret",
 					"secret", secretName, "client-id", oidcCfg.Oidc.GetClientId())
 
 				// Update the configuration with the loaded client secret
