@@ -72,10 +72,7 @@ func TestOIDCProcessWithKubernetesSecret(t *testing.T) {
 				require.NoError(t, err)
 			}()
 
-			t.Cleanup(func() {
-				cancel()
-				require.NoError(t, testEnv.Stop())
-			})
+			t.Cleanup(cancel)
 
 			var secrets []*corev1.Secret
 			if tt.hasSecretRef {
