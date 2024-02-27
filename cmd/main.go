@@ -31,17 +31,16 @@ import (
 
 func main() {
 	var (
-		lifecycle    = run.NewLifecycle()
-		configFile   = &internal.LocalConfigFile{}
-		logging      = internal.NewLogSystem(log.New(), &configFile.Config)
-		tlsPool      = internal.NewTLSConfigPool(lifecycle.Context())
-		jwks         = oidc.NewJWKSProvider(tlsPool)
-		sessions     = oidc.NewSessionStoreFactory(&configFile.Config)
-		envoyAuthz   = server.NewExtAuthZFilter(&configFile.Config, tlsPool, jwks, sessions)
-		authzServer  = server.New(&configFile.Config, envoyAuthz.Register)
-		healthz      = server.NewHealthServer(&configFile.Config)
-		secretCtrl   = k8s.NewSecretController(&configFile.Config)
-		secretLoader = k8s.NewSecretLoader(&configFile.Config)
+		lifecycle   = run.NewLifecycle()
+		configFile  = &internal.LocalConfigFile{}
+		logging     = internal.NewLogSystem(log.New(), &configFile.Config)
+		tlsPool     = internal.NewTLSConfigPool(lifecycle.Context())
+		jwks        = oidc.NewJWKSProvider(tlsPool)
+		sessions    = oidc.NewSessionStoreFactory(&configFile.Config)
+		envoyAuthz  = server.NewExtAuthZFilter(&configFile.Config, tlsPool, jwks, sessions)
+		authzServer = server.New(&configFile.Config, envoyAuthz.Register)
+		healthz     = server.NewHealthServer(&configFile.Config)
+		secretCtrl  = k8s.NewSecretController(&configFile.Config)
 	)
 
 	configLog := run.NewPreRunner("config-log", func() error {
@@ -55,16 +54,10 @@ func main() {
 	g := run.Group{Logger: internal.Logger(internal.Default)}
 
 	g.Register(
-		lifecycle,  // manage the lifecycle of the run.Services
-		configFile, // load the configuration
-		logging,    // Set up the logging system
-		// Note: order matters here.
-		// The controller must be started before client secrets are loaded.
-		// Otherwise, the controller will not be able to get the original
-		// configuration since secret loader will update the client secret
-		// references and change the references to the client secret data.
+		lifecycle,         // manage the lifecycle of the run.Services
+		configFile,        // load the configuration
+		logging,           // Set up the logging system
 		secretCtrl,        // watch for secret updates and update the configuration
-		secretLoader,      // load the secrets and update the configuration
 		configLog,         // log the configuration
 		jwks,              // start the JWKS provider
 		sessions,          // start the session store

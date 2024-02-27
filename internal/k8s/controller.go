@@ -16,6 +16,7 @@ package k8s
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/tetratelabs/run"
@@ -33,6 +34,11 @@ import (
 	configv1 "github.com/tetrateio/authservice-go/config/gen/go/v1"
 	oidcv1 "github.com/tetrateio/authservice-go/config/gen/go/v1/oidc"
 	"github.com/tetrateio/authservice-go/internal"
+)
+
+const (
+	defaultNamespace = "default"
+	clientSecretKey  = "client-secret"
 )
 
 var (
@@ -74,19 +80,35 @@ func (s *SecretController) PreRun() error {
 			if !ok || oidcCfg.Oidc.GetClientSecretRef().GetName() == "" {
 				continue
 			}
-			namespace := oidcCfg.Oidc.GetClientSecretRef().Namespace
-			if namespace == "" {
-				namespace = defaultNamespace
-			}
-			secretName := types.NamespacedName{
-				Namespace: namespace,
-				Name:      oidcCfg.Oidc.GetClientSecretRef().GetName(),
-			}.String()
-			s.secrets.Insert(secretName)
+			s.secrets.Insert(namespacedName(oidcCfg.Oidc.GetClientSecretRef()).String())
+		}
+	}
+
+	// If there are no secrets to watch, we can skip starting the controller manager
+	if s.secrets.Len() == 0 {
+		return nil
+	}
+
+	var err error
+	if s.restConf == nil {
+		s.restConf, err = config.GetConfig()
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrLoadingConfig, err)
 		}
 	}
 
 	return nil
+}
+
+func namespacedName(secretRef *oidcv1.OIDCConfig_SecretReference) types.NamespacedName {
+	namespace := secretRef.Namespace
+	if namespace == "" {
+		namespace = defaultNamespace
+	}
+	return types.NamespacedName{
+		Namespace: namespace,
+		Name:      secretRef.GetName(),
+	}
 }
 
 // Name implements run.PreRunner
@@ -102,14 +124,7 @@ func (s *SecretController) ServeContext(ctx context.Context) error {
 		return nil
 	}
 
-	var err error
-	if s.restConf == nil {
-		s.restConf, err = config.GetConfig()
-		if err != nil {
-			return fmt.Errorf("%w: %w", ErrLoadingConfig, err)
-		}
-	}
-
+	//TODO: Add manager options, like metrics, healthz, leader election, etc.
 	mgr, err := ctrl.NewManager(s.restConf, manager.Options{})
 	s.k8sClient = mgr.GetClient()
 	if err != nil {
@@ -127,9 +142,6 @@ func (s *SecretController) ServeContext(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-func (s *SecretController) GracefulStop() {
 }
 
 func (s *SecretController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -152,7 +164,7 @@ func (s *SecretController) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	clientSecretBytes, ok := secret.Data[clientSecretKey]
 	if !ok || len(clientSecretBytes) == 0 {
-		s.log.Error("client secret data not found in secret", ErrNoSecretData, "secret", secret)
+		s.log.Error("", errors.New("client-secret not found in secret"), "secret", secret)
 		// Do not return an error here, as trying to process the secret again
 		// will not help when the data is not present.
 		return ctrl.Result{}, nil
@@ -168,14 +180,11 @@ func (s *SecretController) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			if namespace == "" {
 				namespace = defaultNamespace
 			}
-			secretName := types.NamespacedName{
-				Namespace: namespace,
-				Name:      oidcCfg.Oidc.GetClientSecretRef().GetName(),
-			}.String()
+			clientSecret := namespacedName(oidcCfg.Oidc.GetClientSecretRef()).String()
 
-			if secretName == changedSecret {
+			if clientSecret == changedSecret {
 				s.log.Info("updating client-secret data from secret",
-					"secret", secretName, "client-id", oidcCfg.Oidc.GetClientId())
+					"secret", clientSecret, "client-id", oidcCfg.Oidc.GetClientId())
 
 				// Update the configuration with the loaded client secret
 				s.effectiveConf.Chains[i].Filters[j].GetOidc().ClientSecretConfig = &oidcv1.OIDCConfig_ClientSecret{

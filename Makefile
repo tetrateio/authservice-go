@@ -86,7 +86,8 @@ config/lint:  ## Lint the Config Proto generated code
 
 .PHONY: test
 test:  ## Run all the tests
-	@go test $(TEST_OPTS) $(TEST_PKGS)
+	KUBEBUILDER_ASSETS="$(shell go run $(ENVTEST) use -p path)" \
+		go test $(TEST_OPTS) $(TEST_PKGS)
 
 COVERAGE_OPTS ?=
 .PHONY: coverage
@@ -95,7 +96,6 @@ coverage: ## Creates coverage report for all projects
 	@mkdir -p $(OUTDIR)/$@
 	KUBEBUILDER_ASSETS="$(shell go run $(ENVTEST) use -p path)" \
 		go test $(COVERAGE_OPTS) \
-			--tags=integration \
 			-timeout 30s \
 			-coverprofile $(OUTDIR)/$@/coverage.out \
 			-covermode atomic \

@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build integration
-// +build integration
-
 package k8s
 
 import (
@@ -44,8 +41,7 @@ const (
 
 func TestOIDCProcessWithKubernetesSecret(t *testing.T) {
 	// start kube test env
-	testEnv, conf, err := startEnv()
-	require.NoError(t, err)
+	testEnv, conf := startEnv(t)
 
 	// load test data
 	var originalConf = &configv1.Config{}
@@ -109,12 +105,10 @@ func TestOIDCProcessWithKubernetesSecret(t *testing.T) {
 	}, defaultWait, defaultTick)
 }
 
-func startEnv() (*envtest.Environment, *rest.Config, error) {
+func startEnv(t *testing.T) (*envtest.Environment, *rest.Config) {
 	log.SetLogger(zap.New(zap.WriteTo(os.Stderr), zap.UseDevMode(true)))
 	env := &envtest.Environment{}
 	cfg, err := env.Start()
-	if err != nil {
-		return env, nil, err
-	}
-	return env, cfg, nil
+	require.NoError(t, err)
+	return env, cfg
 }
