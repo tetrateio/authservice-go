@@ -25,7 +25,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	configv1 "github.com/tetrateio/authservice-go/config/gen/go/v1"
-	"github.com/tetrateio/authservice-go/internal/log"
 )
 
 const (
@@ -101,7 +100,7 @@ func (s *setupLogging) PreRun() error {
 	if err != nil {
 		return err
 	}
-	ctrl.SetLogger(log.NewLogrAdapter(Logger(K8s)))
+	ctrl.SetLogger(NewLogrAdapter(Logger(K8s)))
 	setLogLevels(s.logger, levels)
 	return nil
 }
