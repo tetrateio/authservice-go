@@ -66,7 +66,10 @@ func (s *ClientSecretLoader) PreRun() error {
 	for _, c := range s.cfg.GetChains() {
 		for _, f := range c.GetFilters() {
 			oidcCfg, ok := f.Type.(*configv1.Filter_Oidc)
-			if !ok || oidcCfg.Oidc.GetClientSecretRef().GetName() == "" && oidcCfg.Oidc.GetClientSecretFile() == "" {
+			if !ok ||
+				oidcCfg.Oidc.GetClientSecretRef().GetName() == "" &&
+					oidcCfg.Oidc.GetClientSecretFile() == "" &&
+					oidcCfg.Oidc.GetClientSecretEnvVar() == "" {
 				continue
 			}
 
@@ -109,6 +112,18 @@ func (s *ClientSecretLoader) PreRun() error {
 					})
 				if err != nil {
 					errs = append(errs, fmt.Errorf("error reading secret %s/%s: %w", name, namespace, err))
+				}
+
+			case oidcCfg.Oidc.GetClientSecretEnvVar() != "":
+				envReader := internal.NewEnvVarReader(oidcCfg.Oidc.GetClientSecretEnvVar())
+				clientSecret, err = watcher.WatchFile(envReader, oidcCfg.Oidc.GetClientSecretRefreshInterval().AsDuration(),
+					func(data []byte) {
+						// Update the configuration with the loaded client secret
+						log := s.log.With("env", oidcCfg.Oidc.GetClientSecretEnvVar(), "client-id", clientID)
+						updateClientSecret(log, data, oidcCfg.Oidc)
+					})
+				if err != nil {
+					errs = append(errs, fmt.Errorf("error reading env var %s: %w", oidcCfg.Oidc.GetClientSecretEnvVar(), err))
 				}
 			}
 

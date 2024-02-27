@@ -16,6 +16,7 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"os"
 	"sync"
 	"time"
@@ -141,7 +142,10 @@ func (w *watcher) start() {
 	}()
 }
 
-var _ Reader = (*FileReader)(nil)
+var (
+	_ Reader = (*FileReader)(nil)
+	_ Reader = (*EnvVarReader)(nil)
+)
 
 // FileReader is a Reader that reads the content of a file given its path.
 type FileReader struct {
@@ -161,4 +165,30 @@ func (f *FileReader) ID() string {
 // Read reads the content of the file.
 func (f *FileReader) Read() ([]byte, error) {
 	return os.ReadFile(f.filePath)
+}
+
+// EnvVarReader is a Reader that reads the content of an environment variable.
+type EnvVarReader struct {
+	envVar string
+}
+
+var ErrEmptyOrNotFound = errors.New("empty or not found env var")
+
+// NewEnvVarReader creates a new EnvVarReader.
+func NewEnvVarReader(envVar string) *EnvVarReader {
+	return &EnvVarReader{envVar: envVar}
+}
+
+// ID returns the environment variable name.
+func (e *EnvVarReader) ID() string {
+	return e.envVar
+}
+
+// Read reads the content of the environment variable.
+func (e *EnvVarReader) Read() ([]byte, error) {
+	data := os.Getenv(e.envVar)
+	if data != "" {
+		return []byte(data), nil
+	}
+	return nil, ErrEmptyOrNotFound
 }

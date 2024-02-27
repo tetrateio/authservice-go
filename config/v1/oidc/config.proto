@@ -160,6 +160,10 @@ message OIDCConfig {
     // The file path to the OIDC client secret assigned to the filter to be used in the
     // [Authentication Request](https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest).
     string client_secret_file = 24;
+
+    // The environment variable name that contains the OIDC client secret assigned to the filter to be used in the
+    // [Authentication Request](https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest).
+    string client_secret_env_var = 26;
   }
 
   // The duration between refreshes of the client secret if `client_secret_ref` is set.

@@ -30,6 +30,7 @@ import (
 
 	configv1 "github.com/tetrateio/authservice-go/config/gen/go/v1"
 	oidcv1 "github.com/tetrateio/authservice-go/config/gen/go/v1/oidc"
+	"github.com/tetrateio/authservice-go/internal"
 	"github.com/tetrateio/authservice-go/internal/k8s"
 )
 
@@ -50,6 +51,9 @@ func TestClientSecretLoader(t *testing.T) {
 	tmpDir := t.TempDir()
 	validFile := tmpDir + "/secret-file"
 	require.NoError(t, os.WriteFile(validFile, []byte("file-data"), 0644))
+
+	t.Setenv("env-var", "env-var-data")
+	t.Setenv("env-var-empty", "")
 
 	var (
 		validSecretName   = "valid-secret"
@@ -94,6 +98,12 @@ func TestClientSecretLoader(t *testing.T) {
 			nil,
 		},
 		{
+			"client-secret-env-var",
+			&configv1.Config{Chains: []*configv1.FilterChain{{Filters: []*configv1.Filter{filterWithClientSecretEnvVar("env-var")}}}},
+			&configv1.Config{Chains: []*configv1.FilterChain{{Filters: []*configv1.Filter{filterWithClientSecretString("env-var-data")}}}},
+			nil,
+		},
+		{
 			"client-string",
 			&configv1.Config{Chains: []*configv1.FilterChain{{Filters: []*configv1.Filter{filterWithClientSecretString("string-data")}}}},
 			&configv1.Config{Chains: []*configv1.FilterChain{{Filters: []*configv1.Filter{filterWithClientSecretString("string-data")}}}},
@@ -117,6 +127,18 @@ func TestClientSecretLoader(t *testing.T) {
 			&configv1.Config{Chains: []*configv1.FilterChain{{Filters: []*configv1.Filter{filterWithClientSecretFile("non-existent")}}}},
 			os.ErrNotExist,
 		},
+		{
+			"client-env-var-not-found",
+			&configv1.Config{Chains: []*configv1.FilterChain{{Filters: []*configv1.Filter{filterWithClientSecretEnvVar("non-existent")}}}},
+			&configv1.Config{Chains: []*configv1.FilterChain{{Filters: []*configv1.Filter{filterWithClientSecretEnvVar("non-existent")}}}},
+			internal.ErrEmptyOrNotFound,
+		},
+		{
+			"client-env-var-empty",
+			&configv1.Config{Chains: []*configv1.FilterChain{{Filters: []*configv1.Filter{filterWithClientSecretEnvVar("env-var-empty")}}}},
+			&configv1.Config{Chains: []*configv1.FilterChain{{Filters: []*configv1.Filter{filterWithClientSecretEnvVar("env-var-empty")}}}},
+			internal.ErrEmptyOrNotFound,
+		},
 	}
 
 	for _, tt := range tests {
@@ -138,6 +160,14 @@ func TestClientLoaderUpdates(t *testing.T) {
 	require.NoError(t, os.WriteFile(validFile, []byte("file-data"), 0644))
 
 	var (
+		validEnvVar   = "env-var"
+		invalidEnvVar = "invalid-env-var"
+	)
+
+	t.Setenv(validEnvVar, "env-var-data")
+	t.Setenv(invalidEnvVar, "")
+
+	var (
 		validSecretName   = "valid-secret"
 		invalidSecretName = "invalid-secret"
 
@@ -154,7 +184,8 @@ func TestClientLoaderUpdates(t *testing.T) {
 			Chains: []*configv1.FilterChain{{
 				Filters: []*configv1.Filter{
 					filterWithClientSecretRef(validSecretName, ""),
-					filterWithClientSecretFile(validFile)},
+					filterWithClientSecretFile(validFile),
+					filterWithClientSecretEnvVar(validEnvVar)},
 			}},
 		}
 	)
@@ -171,6 +202,7 @@ func TestClientLoaderUpdates(t *testing.T) {
 	// verify config is updated with content
 	require.Equal(t, "secret-data", config.Chains[0].Filters[0].GetOidc().GetClientSecret())
 	require.Equal(t, "file-data", config.Chains[0].Filters[1].GetOidc().GetClientSecret())
+	require.Equal(t, "env-var-data", config.Chains[0].Filters[2].GetOidc().GetClientSecret())
 
 	// update secret content
 	validSecret.Data["client-secret"] = []byte("updated-secret-data")
@@ -180,6 +212,7 @@ func TestClientLoaderUpdates(t *testing.T) {
 	// verify config is updated with new content only for the one with secret ref
 	require.Equal(t, "updated-secret-data", config.Chains[0].Filters[0].GetOidc().GetClientSecret())
 	require.Equal(t, "file-data", config.Chains[0].Filters[1].GetOidc().GetClientSecret())
+	require.Equal(t, "env-var-data", config.Chains[0].Filters[2].GetOidc().GetClientSecret())
 
 	// update file content
 	require.NoError(t, os.WriteFile(validFile, []byte("updated-file-data"), 0644))
@@ -188,16 +221,28 @@ func TestClientLoaderUpdates(t *testing.T) {
 	// verify config is updated with new content only for the one with secret file
 	require.Equal(t, "updated-secret-data", config.Chains[0].Filters[0].GetOidc().GetClientSecret())
 	require.Equal(t, "updated-file-data", config.Chains[0].Filters[1].GetOidc().GetClientSecret())
+	require.Equal(t, "env-var-data", config.Chains[0].Filters[2].GetOidc().GetClientSecret())
 
-	// update secret and the file to empty content
+	// update env var content
+	t.Setenv(validEnvVar, "updated-env-var-data")
+	time.Sleep(intervalAndHalf)
+
+	// verify config is updated with new content only for the one with secret env var
+	require.Equal(t, "updated-secret-data", config.Chains[0].Filters[0].GetOidc().GetClientSecret())
+	require.Equal(t, "updated-file-data", config.Chains[0].Filters[1].GetOidc().GetClientSecret())
+	require.Equal(t, "updated-env-var-data", config.Chains[0].Filters[2].GetOidc().GetClientSecret())
+
+	// update secret, file and env var to empty content
 	validSecret.Data["client-secret"] = []byte("")
 	require.NoError(t, kubeClient.Update(ctx, validSecret))
 	require.NoError(t, os.WriteFile(validFile, []byte(""), 0644))
+	t.Setenv(validEnvVar, "")
 	time.Sleep(intervalAndHalf)
 
 	// verify config is not modified
 	require.Equal(t, "updated-secret-data", config.Chains[0].Filters[0].GetOidc().GetClientSecret())
 	require.Equal(t, "updated-file-data", config.Chains[0].Filters[1].GetOidc().GetClientSecret())
+	require.Equal(t, "updated-env-var-data", config.Chains[0].Filters[2].GetOidc().GetClientSecret())
 
 	// update secret to use an invalid key
 	validSecret.Data = map[string][]byte{"invalid-key": []byte("invalid-secret-data")}
@@ -207,6 +252,7 @@ func TestClientLoaderUpdates(t *testing.T) {
 	// verify config is not modified
 	require.Equal(t, "updated-secret-data", config.Chains[0].Filters[0].GetOidc().GetClientSecret())
 	require.Equal(t, "updated-file-data", config.Chains[0].Filters[1].GetOidc().GetClientSecret())
+	require.Equal(t, "updated-env-var-data", config.Chains[0].Filters[2].GetOidc().GetClientSecret())
 }
 
 func TestClientSecretLoaderName(t *testing.T) {
@@ -235,6 +281,19 @@ func filterWithClientSecretFile(file string) *configv1.Filter {
 			Oidc: &oidcv1.OIDCConfig{
 				ClientSecretConfig: &oidcv1.OIDCConfig_ClientSecretFile{
 					ClientSecretFile: file,
+				},
+				ClientSecretRefreshInterval: durationpb.New(interval),
+			},
+		},
+	}
+}
+
+func filterWithClientSecretEnvVar(envVar string) *configv1.Filter {
+	return &configv1.Filter{
+		Type: &configv1.Filter_Oidc{
+			Oidc: &oidcv1.OIDCConfig{
+				ClientSecretConfig: &oidcv1.OIDCConfig_ClientSecretEnvVar{
+					ClientSecretEnvVar: envVar,
 				},
 				ClientSecretRefreshInterval: durationpb.New(interval),
 			},

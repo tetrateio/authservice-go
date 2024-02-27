@@ -777,6 +777,19 @@ func (m *OIDCConfig) validate(all bool) error {
 		}
 		oneofClientSecretConfigPresent = true
 		// no validation rules for ClientSecretFile
+	case *OIDCConfig_ClientSecretEnvVar:
+		if v == nil {
+			err := OIDCConfigValidationError{
+				field:  "ClientSecretConfig",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+		oneofClientSecretConfigPresent = true
+		// no validation rules for ClientSecretEnvVar
 	default:
 		_ = v // ensures v is used
 	}
