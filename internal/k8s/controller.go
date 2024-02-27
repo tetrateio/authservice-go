@@ -152,7 +152,7 @@ func (s *SecretController) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	clientSecretBytes, ok := secret.Data[clientSecretKey]
 	if !ok || len(clientSecretBytes) == 0 {
-		s.log.Error("client secret not found in secret", ErrNoSecretData, "secret", secret)
+		s.log.Error("client secret data not found in secret", ErrNoSecretData, "secret", secret)
 		// Do not return an error here, as trying to process the secret again
 		// will not help when the data is not present.
 		return ctrl.Result{}, nil
