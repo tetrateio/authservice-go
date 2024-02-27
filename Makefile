@@ -17,7 +17,6 @@ BUILD_OPTS ?=
 TEST_OPTS  ?=
 TEST_PKGS  ?= $(shell go list ./... | grep -v /e2e)
 OUTDIR     ?= bin
-ENVTEST    ?= sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
 
 include env.mk    # Load common variables
 

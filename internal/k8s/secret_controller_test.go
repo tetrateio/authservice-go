@@ -59,7 +59,7 @@ func TestOIDCProcessWithKubernetesSecret(t *testing.T) {
 			expectedConf := loadTestConf(t, fmt.Sprintf("testdata/%s-out.json", tt.testFile))
 
 			// start kube test env
-			testEnv, conf := startEnv(t)
+			conf := startEnv(t)
 
 			// start secret controller
 			controller := NewSecretController(originalConf)
@@ -102,12 +102,16 @@ func TestOIDCProcessWithKubernetesSecret(t *testing.T) {
 	}
 }
 
-func startEnv(t *testing.T) (*envtest.Environment, *rest.Config) {
+func startEnv(t *testing.T) *rest.Config {
 	ctrl.SetLogger(log.NewLogrAdapter(internal.Logger(internal.K8s)))
 	env := &envtest.Environment{}
 	cfg, err := env.Start()
 	require.NoError(t, err)
-	return env, cfg
+	t.Cleanup(func() {
+		err := env.Stop()
+		require.NoError(t, err)
+	})
+	return cfg
 }
 
 func createSecretsForTest(ctx context.Context, t *testing.T, controller *SecretController) []*corev1.Secret {
