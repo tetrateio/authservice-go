@@ -141,8 +141,8 @@ func (s *SecretController) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	secret := new(corev1.Secret)
-	if err := s.k8sClient.Get(ctx, req.NamespacedName, secret); client.IgnoreNotFound(err) != nil {
-		return ctrl.Result{}, fmt.Errorf("unable to get Secret: %w", err)
+	if err := s.k8sClient.Get(ctx, req.NamespacedName, secret); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	if !secret.DeletionTimestamp.IsZero() {
