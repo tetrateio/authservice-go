@@ -86,7 +86,7 @@ config/lint:  ## Lint the Config Proto generated code
 
 .PHONY: test
 test:  ## Run all the tests
-	KUBEBUILDER_ASSETS="$(shell go run $(ENVTEST) use -p path)" \
+	@KUBEBUILDER_ASSETS="$(shell go run $(ENVTEST) use -p path)" \
 		go test $(TEST_OPTS) $(TEST_PKGS)
 
 COVERAGE_OPTS ?=
