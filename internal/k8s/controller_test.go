@@ -28,10 +28,10 @@ import (
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
-	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	configv1 "github.com/tetrateio/authservice-go/config/gen/go/v1"
+	"github.com/tetrateio/authservice-go/internal"
+	"github.com/tetrateio/authservice-go/internal/log"
 )
 
 const (
@@ -106,7 +106,7 @@ func TestOIDCProcessWithKubernetesSecret(t *testing.T) {
 }
 
 func startEnv(t *testing.T) (*envtest.Environment, *rest.Config) {
-	log.SetLogger(zap.New(zap.WriteTo(os.Stderr), zap.UseDevMode(true)))
+	ctrl.SetLogger(log.NewLogrAdapter(internal.Logger(internal.K8s)))
 	env := &envtest.Environment{}
 	cfg, err := env.Start()
 	require.NoError(t, err)
