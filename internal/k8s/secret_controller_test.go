@@ -80,7 +80,7 @@ func TestOIDCProcessWithKubernetesSecret(t *testing.T) {
 			var secrets []*corev1.Secret
 			if tt.hasSecretRef {
 				// create test secrets
-				secrets = createSecretsForTest(t, controller, ctx)
+				secrets = createSecretsForTest(ctx, t, controller)
 			}
 
 			// if the original configuration is already the same as the expected
@@ -113,7 +113,7 @@ func startEnv(t *testing.T) (*envtest.Environment, *rest.Config) {
 	return env, cfg
 }
 
-func createSecretsForTest(t *testing.T, controller *SecretController, ctx context.Context) []*corev1.Secret {
+func createSecretsForTest(ctx context.Context, t *testing.T, controller *SecretController) []*corev1.Secret {
 	// wait for k8s client to be ready
 	require.Eventually(t, func() bool {
 		return controller.k8sClient != nil
