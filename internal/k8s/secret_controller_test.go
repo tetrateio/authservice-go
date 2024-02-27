@@ -64,6 +64,7 @@ func TestOIDCProcessWithKubernetesSecret(t *testing.T) {
 			// start secret controller
 			controller := NewSecretController(originalConf)
 			controller.restConf = conf
+			controller.namespace = "default"
 			ctx, cancel := context.WithCancel(context.Background())
 			go func() {
 				err := controller.PreRun()

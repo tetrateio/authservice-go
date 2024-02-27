@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/tetratelabs/run"
 	"github.com/tetratelabs/telemetry"
@@ -35,8 +36,7 @@ import (
 )
 
 const (
-	defaultNamespace = "default"
-	clientSecretKey  = "client-secret"
+	clientSecretKey = "client-secret"
 )
 
 var (
@@ -51,6 +51,7 @@ type SecretController struct {
 	secrets   map[string][]*oidcv1.OIDCConfig
 	restConf  *rest.Config
 	k8sClient client.Client
+	namespace string
 }
 
 // NewSecretController creates a new k8s Controller that loads secrets from
@@ -65,42 +66,72 @@ func NewSecretController(cfg *configv1.Config) *SecretController {
 // PreRun saves the original configuration in PreRun phase because the
 // configuration is loaded from the file in the Config Validate phase.
 func (s *SecretController) PreRun() error {
-	// Collect the k8s secrets that are used in the configuration
-	s.secrets = make(map[string][]*oidcv1.OIDCConfig)
+	var needWatchSecrets = false
+
+	// Check if there are any k8s secrets to watch
 	for _, c := range s.config.Chains {
 		for _, f := range c.Filters {
-			oidcCfg, ok := f.Type.(*configv1.Filter_Oidc)
-			if !ok || oidcCfg.Oidc.GetClientSecretRef().GetName() == "" {
-				continue
+			oidcCfg, isOIDCConf := f.Type.(*configv1.Filter_Oidc)
+			if isOIDCConf && oidcCfg.Oidc.GetClientSecretRef() != nil {
+				needWatchSecrets = true
+				break
 			}
-			key := namespacedName(oidcCfg.Oidc.GetClientSecretRef()).String()
-			s.secrets[key] = append(s.secrets[key], oidcCfg.Oidc)
 		}
 	}
 
 	// If there are no secrets to watch, we can skip starting the controller manager
-	if len(s.secrets) == 0 {
+	if !needWatchSecrets {
 		return nil
 	}
 
-	var err error
+	// Load the current namespace from the service account directory
+	if s.namespace == "" {
+		const namespaceFile = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
+		data, err := os.ReadFile(namespaceFile)
+		if err != nil {
+			return fmt.Errorf("error reading namespace file %s: %w", namespaceFile, err)
+		}
+		s.namespace = string(data)
+	}
+
+	// Collect the k8s secrets that are used in the configuration
+	s.secrets = make(map[string][]*oidcv1.OIDCConfig)
+	for _, c := range s.config.Chains {
+		for _, f := range c.Filters {
+			oidcCfg, isOIDCConf := f.Type.(*configv1.Filter_Oidc)
+			if !isOIDCConf ||
+				oidcCfg.Oidc.GetClientSecretRef() == nil ||
+				oidcCfg.Oidc.GetClientSecretRef().GetName() == "" {
+				continue
+			}
+
+			ref := oidcCfg.Oidc.GetClientSecretRef()
+			if ref.Namespace != "" && ref.Namespace != s.namespace {
+				return fmt.Errorf(
+					"cross-namespace secret reference is not allowed:"+
+						" secret reference namespace %s does not match the current namespace %s",
+					ref.Namespace, s.namespace)
+			}
+
+			key := secretNamespacedName(ref, s.namespace).String()
+			s.secrets[key] = append(s.secrets[key], oidcCfg.Oidc)
+		}
+	}
+
 	if s.restConf == nil {
-		s.restConf, err = config.GetConfig()
+		conf, err := config.GetConfig()
 		if err != nil {
 			return fmt.Errorf("%w: %w", ErrLoadingConfig, err)
 		}
+		s.restConf = conf
 	}
 
 	return nil
 }
 
-func namespacedName(secretRef *oidcv1.OIDCConfig_SecretReference) types.NamespacedName {
-	namespace := secretRef.Namespace
-	if namespace == "" {
-		namespace = defaultNamespace
-	}
+func secretNamespacedName(secretRef *oidcv1.OIDCConfig_SecretReference, currentNamespace string) types.NamespacedName {
 	return types.NamespacedName{
-		Namespace: namespace,
+		Namespace: currentNamespace,
 		Name:      secretRef.GetName(),
 	}
 }
