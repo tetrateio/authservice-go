@@ -16,7 +16,6 @@ package k8s
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -57,7 +56,7 @@ func TestController(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		err := g.Run("", "--config-path", fmt.Sprintf("testdata/oidc-with-secret-ref.json"))
+		err := g.Run("", "--config-path", "testdata/oidc-with-secret-ref.json")
 		require.NoError(t, err)
 	}()
 

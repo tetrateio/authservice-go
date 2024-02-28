@@ -44,7 +44,9 @@ func TestOIDCProcessWithKubernetesSecret(t *testing.T) {
 		{"secret ref without data", "oidc-with-secret-ref-without-data", ""},
 		{"secret ref deleting", "oidc-with-secret-ref-deleting", ""},
 		{"secret ref not found", "oidc-with-secret-ref-not-found", ""},
-		{"cross namespace secret ref", "oidc-with-cross-ns-secret-ref", "cross-namespace secret reference is not allowed: secret reference namespace test does not match the current namespace default"},
+		{"cross namespace secret ref", "oidc-with-cross-ns-secret-ref",
+			"cross-namespace secret reference is not allowed: secret reference " +
+				"namespace test does not match the current namespace default"},
 	}
 
 	for _, tt := range tests {
@@ -69,7 +71,7 @@ func TestOIDCProcessWithKubernetesSecret(t *testing.T) {
 
 			// reconcile the secrets
 			for _, secret := range secrets.Items {
-				_, err := controller.Reconcile(context.Background(), ctrl.Request{
+				_, err = controller.Reconcile(context.Background(), ctrl.Request{
 					NamespacedName: types.NamespacedName{
 						Namespace: secret.Namespace,
 						Name:      secret.Name,
