@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -137,7 +138,13 @@ func (s *SecretController) PreRun() error {
 	// The controller manager is encapsulated in the secret controller because we
 	// only need it to watch secrets and update the configuration.
 	//TODO: Add manager options, like metrics, healthz, leader election, etc.
-	s.manager, err = ctrl.NewManager(s.restConf, manager.Options{})
+	s.manager, err = ctrl.NewManager(s.restConf, ctrl.Options{
+		Cache: cache.Options{
+			DefaultNamespaces: map[string]cache.Config{
+				s.namespace: {},
+			},
+		},
+	})
 	s.k8sClient = s.manager.GetClient()
 	if err != nil {
 		return fmt.Errorf("error creating controller manager: %w", err)
@@ -155,7 +162,8 @@ func (s *SecretController) PreRun() error {
 // ServeContext starts the controller manager and watches secrets for updates.
 func (s *SecretController) ServeContext(ctx context.Context) error {
 	// If there are no secrets to watch, we can skip starting the controller manager
-	if len(s.secrets) == 0 {
+	needWatchSecrets := len(s.secrets) != 0
+	if !needWatchSecrets {
 		<-ctx.Done()
 		return nil
 	}
