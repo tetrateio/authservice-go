@@ -58,17 +58,12 @@ func TestOIDCProcessWithKubernetesSecret(t *testing.T) {
 			kubeClient := fake.NewClientBuilder().WithLists(secrets).Build()
 			controller := NewSecretController(originalConf)
 			controller.namespace = "default"
-
-			// pre-run the controller
-			err := controller.PreRun()
-			require.ErrorIs(t, err, tt.err)
-
-			// replace the k8s client with the fake client for testing
-			controller.k8sClient = kubeClient
+			controller.k8sClient = kubeClient // set the k8s client with the fake client for testing
+			require.ErrorIs(t, controller.loadSecrets(), tt.err)
 
 			// reconcile the secrets
 			for _, secret := range secrets.Items {
-				_, err = controller.Reconcile(context.Background(), ctrl.Request{
+				_, err := controller.Reconcile(context.Background(), ctrl.Request{
 					NamespacedName: types.NamespacedName{
 						Namespace: secret.Namespace,
 						Name:      secret.Name,
@@ -76,7 +71,7 @@ func TestOIDCProcessWithKubernetesSecret(t *testing.T) {
 				})
 				require.NoError(t, err)
 			}
-			_, err = controller.Reconcile(context.Background(), ctrl.Request{
+			_, err := controller.Reconcile(context.Background(), ctrl.Request{
 				NamespacedName: types.NamespacedName{
 					Namespace: "default",
 					Name:      "non-existing-secret",

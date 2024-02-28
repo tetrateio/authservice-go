@@ -36,6 +36,14 @@ const (
 	defaultTick = time.Millisecond * 20
 )
 
+func TestErrorLoadingConfig(t *testing.T) {
+	t.Setenv("KUBECONFIG", "non-existent-file")
+	sc := NewSecretController(loadTestConf(t, "testdata/oidc-with-secret-ref.json"))
+	sc.namespace = "default"
+
+	require.ErrorIs(t, sc.PreRun(), ErrLoadingConfig)
+}
+
 func TestManagerStarts(t *testing.T) {
 	var (
 		g = run.Group{Logger: telemetry.NoopLogger()}
@@ -116,6 +124,7 @@ func startEnv(t *testing.T) *rest.Config {
 	env := &envtest.Environment{}
 	cfg, err := env.Start()
 	require.NoError(t, err)
+
 	t.Cleanup(func() {
 		require.NoError(t, env.Stop())
 	})
