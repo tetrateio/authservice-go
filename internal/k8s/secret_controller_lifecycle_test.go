@@ -21,14 +21,12 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/tetratelabs/log"
 	"github.com/tetratelabs/run"
 	runtest "github.com/tetratelabs/run/pkg/test"
 	"github.com/tetratelabs/telemetry"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/tetrateio/authservice-go/internal"
 )
@@ -38,13 +36,13 @@ const (
 	defaultTick = time.Millisecond * 20
 )
 
-func TestController(t *testing.T) {
+func TestManagerStarts(t *testing.T) {
 	var (
 		g = run.Group{Logger: telemetry.NoopLogger()}
 
 		irq        = runtest.NewIRQService(func() {})
 		cfg        = internal.LocalConfigFile{}
-		logging    = internal.NewLogSystem(log.New(), &cfg.Config)
+		logging    = internal.NewLogSystem(telemetry.NoopLogger(), &cfg.Config)
 		controller = NewSecretController(&cfg.Config)
 	)
 
@@ -66,21 +64,52 @@ func TestController(t *testing.T) {
 		}, defaultWait, defaultTick, "Controller manager is not setup")
 	})
 
-	t.Run("controller is ready", func(t *testing.T) {
-		require.Eventually(t, func() bool {
-			err := controller.k8sClient.Create(context.Background(), &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-secret",
-					Namespace: "default",
-				},
-			})
-			return err == nil
-		}, defaultWait, defaultTick, "create secret failed")
+	mgrStarted := false
+	err := controller.manager.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		mgrStarted = true
+		<-ctx.Done()
+		return ctx.Err()
+	}))
+	require.NoError(t, err)
+
+	t.Run("manager is started", func(t *testing.T) {
+		require.Eventually(t, func() bool { return mgrStarted },
+			defaultWait, defaultTick, "manager not started")
 	})
 
 	// signal group termination and wait for it
 	require.NoError(t, irq.Close())
 	wg.Wait()
+}
+
+func TestManagerNotInitializedIfNothingToWatch(t *testing.T) {
+	var (
+		g = run.Group{Logger: telemetry.NoopLogger()}
+
+		irq        = runtest.NewIRQService(func() {})
+		cfg        = internal.LocalConfigFile{}
+		logging    = internal.NewLogSystem(telemetry.NoopLogger(), &cfg.Config)
+		controller = NewSecretController(&cfg.Config)
+	)
+
+	controller.restConf = startEnv(t)
+	controller.namespace = "default"
+	g.Register(irq, &cfg, logging, controller)
+
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		err := g.Run("", "--config-path", "testdata/oidc-without-secret-ref-in.json")
+		require.NoError(t, err)
+	}()
+
+	// signal group termination and wait for it
+	require.NoError(t, irq.Close())
+	wg.Wait()
+
+	// Verify that the manager was not set
+	require.Nil(t, controller.manager)
 }
 
 func startEnv(t *testing.T) *rest.Config {

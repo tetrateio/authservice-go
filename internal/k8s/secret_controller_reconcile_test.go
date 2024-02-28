@@ -37,16 +37,14 @@ func TestOIDCProcessWithKubernetesSecret(t *testing.T) {
 	tests := []struct {
 		name     string
 		testFile string
-		err      string
+		err      error
 	}{
-		{"multiple secret refs", "oidc-with-multiple-secret-refs", ""},
-		{"no secret ref", "oidc-without-secret-ref", ""},
-		{"secret ref without data", "oidc-with-secret-ref-without-data", ""},
-		{"secret ref deleting", "oidc-with-secret-ref-deleting", ""},
-		{"secret ref not found", "oidc-with-secret-ref-not-found", ""},
-		{"cross namespace secret ref", "oidc-with-cross-ns-secret-ref",
-			"cross-namespace secret reference is not allowed: secret reference " +
-				"namespace test does not match the current namespace default"},
+		{"multiple secret refs", "oidc-with-multiple-secret-refs", nil},
+		{"no secret ref", "oidc-without-secret-ref", nil},
+		{"secret ref without data", "oidc-with-secret-ref-without-data", nil},
+		{"secret ref deleting", "oidc-with-secret-ref-deleting", nil},
+		{"secret ref not found", "oidc-with-secret-ref-not-found", nil},
+		{"cross namespace secret ref", "oidc-with-cross-ns-secret-ref", ErrCrossNamespaceSecretRef},
 	}
 
 	for _, tt := range tests {
@@ -63,9 +61,8 @@ func TestOIDCProcessWithKubernetesSecret(t *testing.T) {
 
 			// pre-run the controller
 			err := controller.PreRun()
-			if tt.err != "" {
-				require.EqualError(t, err, tt.err)
-			}
+			require.ErrorIs(t, err, tt.err)
+
 			// replace the k8s client with the fake client for testing
 			controller.k8sClient = kubeClient
 

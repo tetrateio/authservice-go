@@ -36,13 +36,13 @@ import (
 	"github.com/tetrateio/authservice-go/internal"
 )
 
-const (
-	clientSecretKey = "client-secret"
-)
+const clientSecretKey = "client-secret"
 
 var (
 	_ run.PreRunner      = (*SecretController)(nil)
 	_ run.ServiceContext = (*SecretController)(nil)
+
+	ErrCrossNamespaceSecretRef = errors.New("cross-namespace secret reference is not allowed")
 )
 
 // SecretController watches secrets for updates and updates the configuration with the loaded data.
@@ -116,10 +116,8 @@ func (s *SecretController) PreRun() error {
 
 			ref := oidcCfg.Oidc.GetClientSecretRef()
 			if ref.Namespace != "" && ref.Namespace != s.namespace {
-				return fmt.Errorf(
-					"cross-namespace secret reference is not allowed:"+
-						" secret reference namespace %s does not match the current namespace %s",
-					ref.Namespace, s.namespace)
+				return fmt.Errorf("%w: secret reference namespace %s does not match the current namespace %s",
+					ErrCrossNamespaceSecretRef, ref.Namespace, s.namespace)
 			}
 
 			key := secretNamespacedName(ref, s.namespace).String()
@@ -169,7 +167,7 @@ func (s *SecretController) ServeContext(ctx context.Context) error {
 	}
 
 	if err := s.manager.Start(ctx); err != nil {
-		return fmt.Errorf("error starting controller manager:%w", err)
+		return fmt.Errorf("error starting controller manager: %w", err)
 	}
 
 	return nil
