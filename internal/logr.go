@@ -21,7 +21,7 @@ import (
 
 var _ logr.LogSink = (*logrAdapter)(nil)
 
-const debugLevelThreshold = 3
+const debugLevelThreshold = 5
 
 // logrAdapter is a type that adapts the log.Logger interface so it can be used with our loggers
 type logrAdapter struct {
