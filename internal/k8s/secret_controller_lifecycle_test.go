@@ -55,9 +55,8 @@ func TestManagerStarts(t *testing.T) {
 	var (
 		g run.Group
 
-		irq = runtest.NewIRQService(func() {})
-		cfg = internal.LocalConfigFile{}
-		//logging    = internal.NewLogSystem(telemetry.NoopLogger(), &cfg.Config)
+		irq        = runtest.NewIRQService(func() {})
+		cfg        = internal.LocalConfigFile{}
 		controller = NewSecretController(&cfg.Config)
 	)
 
@@ -68,7 +67,7 @@ func TestManagerStarts(t *testing.T) {
 
 	controller.restConf = startEnv(t)
 	controller.namespace = defaultNamespace
-	g.Register(irq, &cfg, logging, controller, manual)
+	g.Register(irq, &cfg, controller, manual)
 
 	wg := sync.WaitGroup{}
 	wg.Add(1)
@@ -112,9 +111,8 @@ func TestManagerNotInitializedIfNothingToWatch(t *testing.T) {
 	var (
 		g run.Group
 
-		irq = runtest.NewIRQService(func() {})
-		cfg = internal.LocalConfigFile{}
-		//logging    = internal.NewLogSystem(telemetry.NoopLogger(), &cfg.Config)
+		irq        = runtest.NewIRQService(func() {})
+		cfg        = internal.LocalConfigFile{}
 		controller = NewSecretController(&cfg.Config)
 	)
 
@@ -124,7 +122,7 @@ func TestManagerNotInitializedIfNothingToWatch(t *testing.T) {
 
 	controller.restConf = startEnv(t)
 	controller.namespace = defaultNamespace
-	g.Register(irq, &cfg, logging, controller, manual)
+	g.Register(irq, &cfg, controller, manual)
 
 	wg := sync.WaitGroup{}
 	wg.Add(1)
