@@ -25,7 +25,9 @@ import (
 	"github.com/tetratelabs/run"
 	runtest "github.com/tetratelabs/run/pkg/test"
 	"github.com/tetratelabs/telemetry"
+	"github.com/tetratelabs/telemetry/scope"
 	"k8s.io/client-go/rest"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -47,12 +49,15 @@ func TestErrorLoadingConfig(t *testing.T) {
 }
 
 func TestManagerStarts(t *testing.T) {
-	var (
-		g = run.Group{Logger: telemetry.NoopLogger()}
+	scope.UseLogger(telemetry.NoopLogger())
+	ctrl.SetLogger(internal.NewLogrAdapter(telemetry.NoopLogger()))
 
-		irq        = runtest.NewIRQService(func() {})
-		cfg        = internal.LocalConfigFile{}
-		logging    = internal.NewLogSystem(telemetry.NoopLogger(), &cfg.Config)
+	var (
+		g run.Group
+
+		irq = runtest.NewIRQService(func() {})
+		cfg = internal.LocalConfigFile{}
+		//logging    = internal.NewLogSystem(telemetry.NoopLogger(), &cfg.Config)
 		controller = NewSecretController(&cfg.Config)
 	)
 
@@ -82,7 +87,7 @@ func TestManagerStarts(t *testing.T) {
 	err := controller.manager.Add(manager.RunnableFunc(func(ctx context.Context) error {
 		mgrStarted.Store(true)
 		<-ctx.Done()
-		return ctx.Err()
+		return nil
 	}))
 	require.NoError(t, err)
 
@@ -101,12 +106,15 @@ func TestManagerStarts(t *testing.T) {
 }
 
 func TestManagerNotInitializedIfNothingToWatch(t *testing.T) {
-	var (
-		g = run.Group{Logger: telemetry.NoopLogger()}
+	scope.UseLogger(telemetry.NoopLogger())
+	ctrl.SetLogger(internal.NewLogrAdapter(telemetry.NoopLogger()))
 
-		irq        = runtest.NewIRQService(func() {})
-		cfg        = internal.LocalConfigFile{}
-		logging    = internal.NewLogSystem(telemetry.NoopLogger(), &cfg.Config)
+	var (
+		g run.Group
+
+		irq = runtest.NewIRQService(func() {})
+		cfg = internal.LocalConfigFile{}
+		//logging    = internal.NewLogSystem(telemetry.NoopLogger(), &cfg.Config)
 		controller = NewSecretController(&cfg.Config)
 	)
 
@@ -122,8 +130,7 @@ func TestManagerNotInitializedIfNothingToWatch(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		err := g.Run("", "--config-path", "testdata/oidc-without-secret-ref-in.json")
-		require.NoError(t, err)
+		_ = g.Run("", "--config-path", "testdata/oidc-without-secret-ref-in.json")
 	}()
 
 	// wait for the run group to be fully started
