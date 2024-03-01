@@ -26,7 +26,8 @@ ENVTEST       ?= sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
 NAME    ?= authservice
 TARGETS ?= linux-amd64 linux-arm64 #darwin-amd64 darwin-arm64
 
-DOCKER_HUB            ?= $(GO_MODULE:github.com/%=ghcr.io/%)
+# DOCKER_HUB is exported so that it can be referenced in e2e docker compose files
+export DOCKER_HUB     ?= $(GO_MODULE:github.com/%=ghcr.io/%)
 DOCKER_TARGETS        ?= linux-amd64 linux-arm64
 DOCKER_BUILDER_NAME   ?= $(NAME)-builder
 
