@@ -38,5 +38,8 @@ jobs:
       - uses: docker/setup-qemu-action@v3
         with:
           platforms: amd64,arm64
+      # Whitelist the directory where the source code will be mounted in the container
+      # used to build teh FIPS binaries
+      - run: git config --global --add safe.directory /opt/src
       - run: make fips
       - run: make docker-fips
