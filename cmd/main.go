@@ -66,6 +66,8 @@ func main() {
 		&signal.Handler{}, // handle graceful termination
 	)
 
+	internal.LogFIPS() // Print the FIPS status
+
 	if err := g.Run(); err != nil {
 		fmt.Printf("Unexpected exit: %v\n", err)
 		os.Exit(-1)
