@@ -31,10 +31,10 @@ BUILD_IMAGE="golang:${GO_VERSION}"
 docker run \
     --rm \
     --platform "${1}" \
-    -v "${PWD}":/source \
+    -v "${PWD}":/opt/src \
     -v "$(go env GOMODCACHE)":/go/pkg/mod \
     -e GOPROXY="$(go env GOPROXY)" \
     -e GOPRIVATE="$(go env GOPRIVATE)" \
-    -w /source \
+    -w /opt/src \
     "${BUILD_IMAGE}" \
     /bin/bash -c "${*:2}"
