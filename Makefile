@@ -55,7 +55,7 @@ $(OUTDIR)/$(NAME)-static-%: $(OUTDIR)
 $(OUTDIR)/$(NAME)-fips-%: GOOS=$(word 1,$(subst -, ,$(subst $(NAME)-fips-,,$(@F))))
 $(OUTDIR)/$(NAME)-fips-%: GOARCH=$(word 2,$(subst -, ,$(subst $(NAME)-fips-,,$(@F))))
 $(OUTDIR)/$(NAME)-fips-%: $(OUTDIR)
-ifneq ($(OS),Darwin)
+ifneq ($(BUILD_FIPS_IN_DOCKER),true)
 	@echo "Build $(@F)"
 	@GOEXPERIMENT=boringcrypto CGO_ENABLED=1 GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(BUILD_OPTS) \
 		-ldflags '-linkmode=external -s -w -extldflags "-static"' -tags "netgo" \
