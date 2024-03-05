@@ -24,7 +24,7 @@ fi
 
 set -e
 
-ROOT=$(git rev-parse --show-toplevel)
+ROOT=$(dirname "${0}")
 GO_VERSION=$(sed -ne 's/^go //gp' "${ROOT}/go.mod")
 BUILD_IMAGE="golang:${GO_VERSION}"
 
