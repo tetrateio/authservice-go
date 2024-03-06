@@ -34,6 +34,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 
 	configv1 "github.com/tetrateio/authservice-go/config/gen/go/v1"
+	mockv1 "github.com/tetrateio/authservice-go/config/gen/go/v1/mock"
 	oidcv1 "github.com/tetrateio/authservice-go/config/gen/go/v1/oidc"
 	"github.com/tetrateio/authservice-go/internal"
 )
@@ -157,7 +158,12 @@ func TestDynamicJWKSProvider(t *testing.T) {
 		newCache = func(t *testing.T, oidc *oidcv1.OIDCConfig) JWKSProvider {
 			cfg := &configv1.Config{
 				Chains: []*configv1.FilterChain{
-					{Filters: []*configv1.Filter{{Type: &configv1.Filter_Oidc{Oidc: oidc}}}},
+					{
+						Filters: []*configv1.Filter{
+							{Type: &configv1.Filter_Mock{Mock: &mockv1.MockConfig{}}},
+							{Type: &configv1.Filter_Oidc{Oidc: oidc}},
+						},
+					},
 				},
 			}
 
