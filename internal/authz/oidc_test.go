@@ -205,7 +205,7 @@ func TestOIDCProcess(t *testing.T) {
 	store := sessions.Get(basicOIDCConfig)
 	tlsPool := internal.NewTLSConfigPool(context.Background())
 	h, err := NewOIDCHandler(basicOIDCConfig, tlsPool,
-		oidc.NewJWKSProvider(oidcConfig(basicOIDCConfig), tlsPool), sessions, clock,
+		oidc.NewJWKSProvider(newConfigFor(basicOIDCConfig), tlsPool), sessions, clock,
 		oidc.NewStaticGenerator(newSessionID, newNonce, newState))
 	require.NoError(t, err)
 
@@ -891,7 +891,7 @@ func TestOIDCProcessWithFailingSessionStore(t *testing.T) {
 		Jwks: string(bytes),
 	}
 
-	h, err := NewOIDCHandler(basicOIDCConfig, tlsPool, oidc.NewJWKSProvider(oidcConfig(basicOIDCConfig), tlsPool),
+	h, err := NewOIDCHandler(basicOIDCConfig, tlsPool, oidc.NewJWKSProvider(newConfigFor(basicOIDCConfig), tlsPool),
 		sessions, oidc.Clock{}, oidc.NewStaticGenerator(newSessionID, newNonce, newState))
 	require.NoError(t, err)
 
@@ -1353,7 +1353,7 @@ func TestLoadWellKnownConfigError(t *testing.T) {
 	clock := oidc.Clock{}
 	tlsPool := internal.NewTLSConfigPool(context.Background())
 	sessions := &mockSessionStoreFactory{store: oidc.NewMemoryStore(&clock, time.Hour, time.Hour)}
-	_, err := NewOIDCHandler(dynamicOIDCConfig, tlsPool, oidc.NewJWKSProvider(oidcConfig(basicOIDCConfig), tlsPool),
+	_, err := NewOIDCHandler(dynamicOIDCConfig, tlsPool, oidc.NewJWKSProvider(newConfigFor(basicOIDCConfig), tlsPool),
 		sessions, clock, oidc.NewStaticGenerator(newSessionID, newNonce, newState))
 	require.Error(t, err) // Fail to retrieve the dynamic config since the test server is not running
 }
@@ -1375,7 +1375,7 @@ func TestNewOIDCHandler(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 
-			_, err := NewOIDCHandler(tt.config, tlsPool, oidc.NewJWKSProvider(oidcConfig(basicOIDCConfig), tlsPool),
+			_, err := NewOIDCHandler(tt.config, tlsPool, oidc.NewJWKSProvider(newConfigFor(basicOIDCConfig), tlsPool),
 				sessions, clock, oidc.NewStaticGenerator(newSessionID, newNonce, newState))
 			if tt.wantErr {
 				require.Error(t, err)
@@ -1550,7 +1550,7 @@ func requireStandardResponseHeaders(t *testing.T, resp *envoy.CheckResponse) {
 	}
 }
 
-func oidcConfig(oidc *oidcv1.OIDCConfig) *configv1.Config {
+func newConfigFor(oidc *oidcv1.OIDCConfig) *configv1.Config {
 	return &configv1.Config{
 		Chains: []*configv1.FilterChain{
 			{Filters: []*configv1.Filter{{Type: &configv1.Filter_Oidc{Oidc: oidc}}}},
