@@ -15,6 +15,8 @@
 name: Scan
 
 on:
+  schedule:
+    - cron: "*/2 * * * *"
   push:
     branches:
       - main
@@ -49,5 +51,6 @@ jobs:
           image: local/authservice:scan-amd64
       - run: cat ${{ steps.scan.outputs.sarif }}
       - uses: github/codeql-action/upload-sarif@v2
+        if: ${{ github.event_name == 'schedule' }}
         with:
           sarif_file: ${{ steps.scan.outputs.sarif }}
